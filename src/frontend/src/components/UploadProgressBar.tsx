@@ -1,4 +1,11 @@
-import { CheckCircle, Upload, X, XCircle } from "lucide-react";
+import {
+  CheckCircle,
+  RefreshCw,
+  RotateCcw,
+  Upload,
+  X,
+  XCircle,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useApp } from "../context/AppContext";
 import { useUpload } from "../context/UploadContext";
@@ -10,7 +17,10 @@ export function UploadProgressBar() {
   const visible = upload.status !== "idle";
 
   const getLabel = () => {
-    if (upload.status === "uploading") return `${upload.progress}%`;
+    if (upload.status === "uploading") {
+      if (upload.isResuming) return "Resuming...";
+      return `${upload.progress}%`;
+    }
     if (upload.status === "processing") return "Processing...";
     if (upload.status === "ready") return "Ready!";
     if (upload.status === "error") return "Failed";
@@ -18,6 +28,18 @@ export function UploadProgressBar() {
   };
 
   const canDismiss = upload.status === "ready" || upload.status === "error";
+
+  // "X.X / Y.Y MB" display
+  const mbLabel =
+    upload.status === "uploading" && upload.totalMB > 0
+      ? `${upload.uploadedMB.toFixed(1)} / ${upload.totalMB.toFixed(1)} MB`
+      : null;
+
+  // "Chunk N/T" display
+  const chunkLabel =
+    upload.status === "uploading" && upload.totalChunks > 0
+      ? `Chunk ${upload.chunkIndex}/${upload.totalChunks}`
+      : null;
 
   return (
     <AnimatePresence>
@@ -41,6 +63,8 @@ export function UploadProgressBar() {
                 <CheckCircle size={18} className="text-green-online" />
               ) : upload.status === "error" ? (
                 <XCircle size={18} className="text-destructive" />
+              ) : upload.isResuming ? (
+                <RotateCcw size={18} className="text-sky-400 animate-spin" />
               ) : (
                 <Upload size={18} className="text-orange" />
               )}
@@ -48,15 +72,26 @@ export function UploadProgressBar() {
 
             {/* Title + progress */}
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium truncate text-foreground">
-                {upload.title || "Uploading video"}
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-medium truncate text-foreground">
+                  {upload.title || "Uploading video"}
+                </p>
+                {upload.isResuming && upload.status === "uploading" && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-sky-500/20 text-sky-400 uppercase tracking-wide flex-shrink-0">
+                    Resuming
+                  </span>
+                )}
+              </div>
+
+              {/* Progress bar */}
               <div className="flex items-center gap-2 mt-0.5">
                 {(upload.status === "uploading" ||
                   upload.status === "processing") && (
                   <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
                     <motion.div
-                      className="h-full bg-orange rounded-full"
+                      className={`h-full rounded-full ${
+                        upload.isResuming ? "bg-sky-400" : "bg-orange"
+                      }`}
                       style={{ width: `${upload.progress}%` }}
                       transition={{ type: "tween", ease: "linear" }}
                     />
@@ -68,13 +103,54 @@ export function UploadProgressBar() {
                       ? "text-green-online"
                       : upload.status === "error"
                         ? "text-destructive"
-                        : "text-orange"
+                        : upload.isResuming
+                          ? "text-sky-400"
+                          : "text-orange"
                   }`}
                 >
                   {getLabel()}
                 </span>
               </div>
+
+              {/* MB + Chunk + Speed row */}
+              {upload.status === "uploading" && (
+                <p className="text-[10px] text-muted-foreground mt-0.5 flex gap-2 flex-wrap">
+                  {mbLabel && (
+                    <span className="font-medium text-foreground/60">
+                      {mbLabel}
+                    </span>
+                  )}
+                  {chunkLabel && (
+                    <span className="opacity-50">{chunkLabel}</span>
+                  )}
+                  {upload.uploadSpeed && (
+                    <span className="text-orange/70">{upload.uploadSpeed}</span>
+                  )}
+                  {upload.timeRemaining && (
+                    <span className="opacity-50">
+                      ~{upload.timeRemaining} left
+                    </span>
+                  )}
+                </p>
+              )}
             </div>
+
+            {/* Retry button when error */}
+            {upload.status === "error" && (
+              <button
+                type="button"
+                data-ocid="upload.secondary_button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  upload.retry();
+                }}
+                className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg border border-orange text-orange text-[11px] font-bold hover:bg-orange/10 transition-colors"
+                aria-label="Retry upload"
+              >
+                <RefreshCw size={11} />
+                Retry
+              </button>
+            )}
 
             {/* Dismiss button */}
             {canDismiss && (
