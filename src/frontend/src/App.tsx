@@ -2,6 +2,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AnimatePresence } from "motion/react";
 import { useState } from "react";
+import { IntroScreen } from "./IntroScreen";
+import type { Video } from "./backend";
 import { BottomNav } from "./components/BottomNav";
 import { FloatingMiniPlayer } from "./components/FloatingMiniPlayer";
 import { Header } from "./components/Header";
@@ -24,12 +26,21 @@ const queryClient = new QueryClient({
 });
 
 function AppContent() {
-  const { page } = useApp();
+  const { page, setSelectedVideo, setPage } = useApp();
   const [searchTerm, setSearchTerm] = useState("");
+
+  const handleVideoSelect = (video: Video) => {
+    setSelectedVideo(video);
+    setPage("player");
+  };
 
   return (
     <div className="flex flex-col h-[100dvh] max-w-[430px] mx-auto relative bg-background">
-      <Header searchTerm={searchTerm} onSearchChange={setSearchTerm} />
+      <Header
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        onVideoSelect={handleVideoSelect}
+      />
 
       {/* Main scrollable area — pb-16 reserves space for fixed BottomNav */}
       <div className="flex-1 overflow-y-auto pb-16">
@@ -72,11 +83,21 @@ function AppContent() {
 }
 
 export default function App() {
+  const [showIntro, setShowIntro] = useState(
+    () => !sessionStorage.getItem("introShown"),
+  );
+
+  const handleIntroComplete = () => {
+    sessionStorage.setItem("introShown", "1");
+    setShowIntro(false);
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <InternetIdentityProvider>
         <AppProvider>
           <UploadProvider>
+            {showIntro && <IntroScreen onComplete={handleIntroComplete} />}
             <AppContent />
             <Toaster
               theme="dark"

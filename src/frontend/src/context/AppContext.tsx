@@ -18,6 +18,10 @@ interface AppContextValue {
   setMiniPlayerActive: (v: boolean) => void;
   miniPlayerVideo: Video | null;
   setMiniPlayerVideo: (v: Video | null) => void;
+  notificationPanelOpen: boolean;
+  setNotificationPanelOpen: (v: boolean) => void;
+  notifTick: number;
+  setNotifTick: React.Dispatch<React.SetStateAction<number>>;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
@@ -32,6 +36,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const [miniPlayerActive, setMiniPlayerActive] = useState(false);
   const [miniPlayerVideo, setMiniPlayerVideo] = useState<Video | null>(null);
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
+  const [notifTick, setNotifTick] = useState(0);
 
   return (
     <AppContext.Provider
@@ -50,6 +56,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setMiniPlayerActive,
         miniPlayerVideo,
         setMiniPlayerVideo,
+        notificationPanelOpen,
+        setNotificationPanelOpen,
+        notifTick,
+        setNotifTick,
       }}
     >
       {children}

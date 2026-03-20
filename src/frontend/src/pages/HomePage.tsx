@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { Bell } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Video } from "../backend";
 import { VideoCard } from "../components/VideoCard";
@@ -9,6 +10,7 @@ import {
   getRecommendedVideoIds,
   getWatchProgressPercent,
 } from "../utils/recommendations";
+import { getSubscriptions } from "../utils/subscriptions";
 
 let debounceTimer: ReturnType<typeof setTimeout>;
 
@@ -26,6 +28,14 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 const SKELETON_KEYS = ["sk0", "sk1", "sk2", "sk3", "sk4", "sk5"];
+
+const NOW_MS = Date.now();
+const HOURS_48 = 48 * 60 * 60 * 1000;
+
+function isNewUpload(uploadTime: bigint): boolean {
+  const ms = Number(uploadTime) / 1_000_000;
+  return NOW_MS - ms < HOURS_48;
+}
 
 // ── Section: horizontal scroll row ──────────────────────────────────────────
 function HorizontalRow({
@@ -71,10 +81,12 @@ function GridSection({
   title,
   videos,
   onVideoClick,
+  showNewBadge,
 }: {
   title: string;
   videos: Video[];
   onVideoClick: (v: Video) => void;
+  showNewBadge?: boolean;
 }) {
   if (videos.length === 0) return null;
   return (
@@ -82,12 +94,18 @@ function GridSection({
       <h2 className="text-sm font-semibold text-foreground mb-3">{title}</h2>
       <div className="grid grid-cols-2 gap-3">
         {videos.map((video, i) => (
-          <VideoCard
-            key={video.id}
-            video={video}
-            index={i + 1}
-            onClick={() => onVideoClick(video)}
-          />
+          <div key={video.id} className="relative">
+            {showNewBadge && isNewUpload(video.uploadTime) && (
+              <span className="absolute top-1 left-1 z-10 bg-orange text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                NEW
+              </span>
+            )}
+            <VideoCard
+              video={video}
+              index={i + 1}
+              onClick={() => onVideoClick(video)}
+            />
+          </div>
         ))}
       </div>
     </section>
@@ -103,7 +121,6 @@ export function HomePage({ searchTerm }: HomePageProps) {
   } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>("forYou");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  // Re-render trigger for localStorage-based recommendations
   const [recTick, setRecTick] = useState(0);
   const tickRef = useRef(recTick);
   tickRef.current = recTick;
@@ -114,7 +131,6 @@ export function HomePage({ searchTerm }: HomePageProps) {
     return () => clearTimeout(debounceTimer);
   }, [searchTerm]);
 
-  // Refresh recommendations when page becomes visible
   useEffect(() => {
     const onFocus = () => setRecTick((t) => t + 1);
     window.addEventListener("focus", onFocus);
@@ -125,7 +141,6 @@ export function HomePage({ searchTerm }: HomePageProps) {
     debouncedSearch || undefined,
   );
 
-  // Auto-navigate to just-uploaded video when it appears in the list
   useEffect(() => {
     if (!justUploadedVideoId || videos.length === 0) return;
     const found = videos.find((v) => v.id === justUploadedVideoId);
@@ -150,7 +165,6 @@ export function HomePage({ searchTerm }: HomePageProps) {
     [setSelectedVideo, setPage],
   );
 
-  // ── Build sections (only when not searching) ─────────────────────────────
   const videoMap = new Map(videos.map((v) => [v.id, v]));
 
   const continueWatchingIds = getContinueWatchingVideoIds(10);
@@ -170,7 +184,6 @@ export function HomePage({ searchTerm }: HomePageProps) {
     .sort((a, b) => Number(b.views - a.views))
     .slice(0, 4);
 
-  // "Discover New" = videos not interacted with much
   const discoverVideos = videos
     .filter(
       (v) =>
@@ -181,6 +194,12 @@ export function HomePage({ searchTerm }: HomePageProps) {
 
   const newVideos = [...videos].sort((a, b) =>
     Number(b.uploadTime - a.uploadTime),
+  );
+
+  // Subscriptions tab
+  const subscriptions = getSubscriptions();
+  const subscribedVideos = videos.filter((v) =>
+    subscriptions.includes(v.creatorId),
   );
 
   return (
@@ -270,7 +289,6 @@ export function HomePage({ searchTerm }: HomePageProps) {
             </p>
           </div>
         ) : activeTab === "forYou" ? (
-          // ── FOR YOU: Sectioned feed ──────────────────────────────────────
           <div data-ocid="home.list">
             {continueWatchingVideos.length > 0 && (
               <HorizontalRow
@@ -297,7 +315,6 @@ export function HomePage({ searchTerm }: HomePageProps) {
                 onVideoClick={handleVideoClick}
               />
             )}
-            {/* Fallback: show all if sections are thin */}
             {recommendedVideos.length === 0 && trendingVideos.length === 0 && (
               <div className="grid grid-cols-2 gap-3 px-3">
                 {videos.map((video, i) => (
@@ -312,7 +329,6 @@ export function HomePage({ searchTerm }: HomePageProps) {
             )}
           </div>
         ) : activeTab === "trending" ? (
-          // ── TRENDING ────────────────────────────────────────────────────
           <div data-ocid="home.list" className="grid grid-cols-2 gap-3 px-3">
             {[...videos]
               .sort((a, b) => Number(b.views - a.views))
@@ -326,7 +342,6 @@ export function HomePage({ searchTerm }: HomePageProps) {
               ))}
           </div>
         ) : activeTab === "new" ? (
-          // ── NEW ─────────────────────────────────────────────────────────
           <div data-ocid="home.list" className="grid grid-cols-2 gap-3 px-3">
             {newVideos.map((video, i) => (
               <VideoCard
@@ -338,21 +353,38 @@ export function HomePage({ searchTerm }: HomePageProps) {
             ))}
           </div>
         ) : (
-          // ── SUBSCRIPTIONS (all videos) ──────────────────────────────────
+          // ── SUBSCRIPTIONS ───────────────────────────────────────────────
           <div className="px-3">
-            <p className="text-xs text-muted-foreground mb-3 px-0">
-              All Videos
-            </p>
-            <div data-ocid="home.list" className="grid grid-cols-2 gap-3">
-              {videos.map((video, i) => (
-                <VideoCard
-                  key={video.id}
-                  video={video}
-                  index={i + 1}
-                  onClick={() => handleVideoClick(video)}
-                />
-              ))}
-            </div>
+            {subscriptions.length === 0 ? (
+              <div
+                data-ocid="home.empty_state"
+                className="flex flex-col items-center justify-center py-16 text-center"
+              >
+                <Bell className="w-10 h-10 text-muted-foreground/40 mb-3" />
+                <p className="text-muted-foreground text-sm font-medium">
+                  Subscribe to creators
+                </p>
+                <p className="text-muted-foreground/60 text-xs mt-1">
+                  Their videos will appear here
+                </p>
+              </div>
+            ) : subscribedVideos.length === 0 ? (
+              <div
+                data-ocid="home.empty_state"
+                className="flex flex-col items-center justify-center py-16 text-center"
+              >
+                <p className="text-muted-foreground text-sm">
+                  No new videos from your subscriptions
+                </p>
+              </div>
+            ) : (
+              <GridSection
+                title="From Subscriptions"
+                videos={subscribedVideos}
+                onVideoClick={handleVideoClick}
+                showNewBadge
+              />
+            )}
           </div>
         )}
       </div>

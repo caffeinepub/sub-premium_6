@@ -10,22 +10,42 @@ import { Input } from "@/components/ui/input";
 import { useQueryClient } from "@tanstack/react-query";
 import { Bell, LogIn, LogOut, Search, Settings, User } from "lucide-react";
 import type { ChangeEvent } from "react";
+import { useRef, useState } from "react";
+import type { Video } from "../backend";
 import { useApp } from "../context/AppContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
-import { useUserProfile } from "../hooks/useQueries";
+import { useListVideos, useUserProfile } from "../hooks/useQueries";
+import { getUnreadCount } from "../utils/notifications";
+import { NotificationPanel } from "./NotificationPanel";
 
 interface HeaderProps {
   searchTerm: string;
   onSearchChange: (val: string) => void;
+  onVideoSelect?: (video: Video) => void;
 }
 
-export function Header({ searchTerm, onSearchChange }: HeaderProps) {
-  const { setLoginModalOpen, setSettingsOpen, setPage } = useApp();
+export function Header({
+  searchTerm,
+  onSearchChange,
+  onVideoSelect,
+}: HeaderProps) {
+  const {
+    setLoginModalOpen,
+    setSettingsOpen,
+    setPage,
+    notificationPanelOpen,
+    setNotificationPanelOpen,
+    notifTick,
+  } = useApp();
   const { identity, clear } = useInternetIdentity();
   const { data: profile } = useUserProfile();
   const qc = useQueryClient();
+  const { data: allVideos = [] } = useListVideos();
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const isAuthenticated = !!identity;
+  const unreadCount = notifTick >= 0 ? getUnreadCount() : 0; // notifTick forces re-read
 
   const handleLogout = async () => {
     await clear();
@@ -36,6 +56,27 @@ export function Header({ searchTerm, onSearchChange }: HeaderProps) {
   const initials = profile?.displayName
     ? profile.displayName.slice(0, 2).toUpperCase()
     : "SP";
+
+  // Search suggestions: up to 6 matches on title or creatorName
+  const suggestions =
+    searchFocused && searchTerm.length >= 2
+      ? allVideos
+          .filter(
+            (v) =>
+              v.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              (v.creatorName ?? "")
+                .toLowerCase()
+                .includes(searchTerm.toLowerCase()),
+          )
+          .slice(0, 6)
+      : [];
+
+  const handleSuggestionMouseDown = (video: Video) => {
+    // mousedown fires before blur so we can navigate before search loses focus
+    onSearchChange(video.title);
+    setSearchFocused(false);
+    onVideoSelect?.(video);
+  };
 
   return (
     <header className="sticky top-0 z-40 w-full bg-surface1 border-b border-border/60 px-3 py-2">
@@ -70,10 +111,20 @@ export function Header({ searchTerm, onSearchChange }: HeaderProps) {
         <button
           type="button"
           data-ocid="header.button"
+          onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
           className="relative p-1.5 rounded-full hover:bg-accent transition-colors"
         >
-          <Bell size={20} className="text-muted-foreground" />
-          <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-orange rounded-full" />
+          <Bell
+            size={20}
+            className={
+              notificationPanelOpen ? "text-orange" : "text-muted-foreground"
+            }
+          />
+          {unreadCount > 0 && (
+            <span className="absolute top-0 right-0 min-w-[16px] h-4 bg-orange text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
         </button>
 
         {/* Profile */}
@@ -156,9 +207,10 @@ export function Header({ searchTerm, onSearchChange }: HeaderProps) {
       <div className="relative">
         <Search
           size={15}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground z-10"
         />
         <Input
+          ref={searchRef}
           data-ocid="home.search_input"
           type="search"
           placeholder="Search videos, channels, and creators"
@@ -166,9 +218,54 @@ export function Header({ searchTerm, onSearchChange }: HeaderProps) {
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
             onSearchChange(e.target.value)
           }
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
           className="pl-9 h-9 rounded-full bg-surface2 border-border/60 text-sm placeholder:text-muted-foreground focus-visible:ring-orange"
         />
+
+        {/* Search suggestions dropdown */}
+        {suggestions.length > 0 && (
+          <div
+            data-ocid="home.search_input"
+            className="absolute left-0 right-0 top-full mt-1 bg-surface1 border border-border/60 rounded-xl shadow-lg z-50 overflow-hidden"
+          >
+            {suggestions.map((video) => {
+              const thumb = video.thumbnailBlobId?.getDirectURL?.();
+              return (
+                <button
+                  key={video.id}
+                  type="button"
+                  onMouseDown={() => handleSuggestionMouseDown(video)}
+                  className="w-full flex items-center gap-3 px-3 py-2 hover:bg-surface2 transition-colors text-left"
+                >
+                  <div className="w-10 h-7 rounded bg-surface2 flex-shrink-0 overflow-hidden">
+                    {thumb ? (
+                      <img
+                        src={thumb}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-surface2" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-foreground truncate">
+                      {video.title}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      {video.creatorName}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
+
+      {/* Notification Panel */}
+      <NotificationPanel videos={allVideos} open={notificationPanelOpen} />
     </header>
   );
 }

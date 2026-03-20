@@ -1,12 +1,16 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Bookmark,
+  Check,
   Download,
   Eye,
   MessageCircle,
+  Plus,
   Share2,
   SkipForward,
   ThumbsDown,
@@ -26,12 +30,21 @@ import {
   useUpdateWatchHistory,
 } from "../hooks/useQueries";
 import { checkMilestone, formatMilestone } from "../utils/milestones";
+import { addNotification } from "../utils/notifications";
+import {
+  addVideoToPlaylist,
+  createPlaylist,
+  getPlaylists,
+  isVideoInPlaylist,
+  removeVideoFromPlaylist,
+} from "../utils/playlists";
 import {
   getRecommendedVideoIds,
   getWatchProgress,
   saveWatchProgress,
   trackBehavior,
 } from "../utils/recommendations";
+import { isSubscribed, toggleSubscription } from "../utils/subscriptions";
 
 function formatViews(views: bigint | number): string {
   const n = Number(views);
@@ -59,6 +72,7 @@ export function VideoPlayerPage() {
     setSelectedVideo,
     setMiniPlayerActive,
     setMiniPlayerVideo,
+    setNotifTick,
   } = useApp();
   const { identity } = useInternetIdentity();
   const queryClient = useQueryClient();
@@ -80,6 +94,10 @@ export function VideoPlayerPage() {
     [],
   );
   const [showDesc, setShowDesc] = useState(false);
+  const [subscribed, setSubscribed] = useState(false);
+  const [saveSheetOpen, setSaveSheetOpen] = useState(false);
+  const [playlists, setPlaylists] = useState(getPlaylists());
+  const [newPlaylistName, setNewPlaylistName] = useState("");
 
   const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(
     null,
@@ -92,7 +110,6 @@ export function VideoPlayerPage() {
       incrementViews.mutateAsync(videoId).catch(() => {}),
       updateHistory.mutateAsync(videoId).catch(() => {}),
     ]);
-    // Check milestone — only notify the creator
     const myPrincipal = identity?.getPrincipal().toString();
     if (myPrincipal && selectedVideo?.creatorId === myPrincipal) {
       const cachedVideos =
@@ -126,6 +143,7 @@ export function VideoPlayerPage() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on video id change
   useEffect(() => {
+    if (!selectedVideo) return;
     hasTracked.current = false;
     setLiked(false);
     setDisliked(false);
@@ -134,6 +152,7 @@ export function VideoPlayerPage() {
     setShowDesc(false);
     setAutoplayCountdown(null);
     setNextVideo(null);
+    setSubscribed(isSubscribed(selectedVideo.creatorId));
     if (countdownRef.current) clearInterval(countdownRef.current);
     window.scrollTo({ top: 0 });
     setMiniPlayerActive(false);
@@ -293,6 +312,43 @@ export function VideoPlayerPage() {
     trackView(video.id);
   };
 
+  const handleSubscribe = () => {
+    const newState = toggleSubscription(selectedVideo.creatorId);
+    setSubscribed(newState);
+    if (newState) {
+      addNotification({
+        type: "new_video",
+        title: "Subscribed!",
+        body: `You'll be notified of new videos from ${
+          selectedVideo.creatorName || "this creator"
+        }`,
+        videoId: selectedVideo.id,
+      });
+      setNotifTick((t) => t + 1);
+      toast.success(`Subscribed to ${selectedVideo.creatorName || "creator"}`);
+    } else {
+      toast(`Unsubscribed from ${selectedVideo.creatorName || "creator"}`);
+    }
+  };
+
+  const handleTogglePlaylist = (playlistId: string) => {
+    if (isVideoInPlaylist(playlistId, selectedVideo.id)) {
+      removeVideoFromPlaylist(playlistId, selectedVideo.id);
+    } else {
+      addVideoToPlaylist(playlistId, selectedVideo.id);
+    }
+    setPlaylists(getPlaylists());
+  };
+
+  const handleCreatePlaylist = () => {
+    if (!newPlaylistName.trim()) return;
+    const pl = createPlaylist(newPlaylistName.trim());
+    addVideoToPlaylist(pl.id, selectedVideo.id);
+    setPlaylists(getPlaylists());
+    setNewPlaylistName("");
+    toast.success(`Added to "${pl.name}"`);
+  };
+
   const nextThumb = nextVideo?.thumbnailBlobId?.getDirectURL?.();
 
   return (
@@ -335,61 +391,56 @@ export function VideoPlayerPage() {
               onTimeUpdate={handleTimeUpdate}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                <div className="w-16 h-16 rounded-full bg-surface2 flex items-center justify-center">
-                  <svg
-                    aria-hidden="true"
-                    width="28"
-                    height="28"
-                    viewBox="0 0 28 28"
-                    fill="none"
-                  >
-                    <path
-                      d="M7 5L22 14L7 23V5Z"
-                      fill="oklch(0.68 0.18 35 / 0.5)"
-                    />
-                  </svg>
-                </div>
-                <p className="text-sm">Video not available</p>
-              </div>
+            <div className="w-full h-full flex items-center justify-center bg-black">
+              <p className="text-white/40 text-sm">Video unavailable</p>
             </div>
           )}
 
-          {/* Autoplay Countdown Overlay */}
+          {/* Autoplay countdown overlay */}
           <AnimatePresence>
             {autoplayCountdown !== null && nextVideo && (
               <motion.div
-                data-ocid="player.modal"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-3 px-4"
+                className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-3"
               >
-                <div className="relative w-full max-w-[200px] aspect-video rounded-lg overflow-hidden border border-white/10">
-                  {nextThumb ? (
-                    <img
-                      src={nextThumb}
-                      alt={nextVideo.title}
-                      className="w-full h-full object-cover"
+                {nextThumb && (
+                  <img
+                    src={nextThumb}
+                    alt=""
+                    className="w-24 h-16 object-cover rounded-lg opacity-80"
+                  />
+                )}
+                <div className="relative w-12 h-12">
+                  <svg
+                    aria-hidden="true"
+                    className="w-12 h-12 -rotate-90"
+                    viewBox="0 0 48 48"
+                  >
+                    <circle
+                      cx="24"
+                      cy="24"
+                      r="20"
+                      fill="none"
+                      stroke="rgba(255,255,255,0.2)"
+                      strokeWidth="4"
                     />
-                  ) : (
-                    <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
-                      <SkipForward size={24} className="text-orange-400" />
-                    </div>
-                  )}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <motion.div
-                      key={autoplayCountdown}
-                      initial={{ scale: 1.3, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      className="w-12 h-12 rounded-full bg-orange-500/90 flex items-center justify-center shadow-lg"
-                    >
-                      <span className="text-black font-bold text-lg">
-                        {autoplayCountdown}
-                      </span>
-                    </motion.div>
-                  </div>
+                    <motion.circle
+                      cx="24"
+                      cy="24"
+                      r="20"
+                      fill="none"
+                      stroke="oklch(0.68 0.18 35)"
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      strokeDasharray={125.6}
+                      strokeDashoffset={125.6 - (125.6 * autoplayCountdown) / 7}
+                    />
+                  </svg>
+                  <span className="absolute inset-0 flex items-center justify-center text-white font-bold text-sm">
+                    {autoplayCountdown}
+                  </span>
                 </div>
                 <p className="text-xs text-white/60 uppercase tracking-widest font-semibold">
                   Up Next
@@ -447,6 +498,26 @@ export function VideoPlayerPage() {
               {timeAgo(selectedVideo.uploadTime)}
             </span>
           </div>
+
+          {/* Subscribe button */}
+          <button
+            type="button"
+            data-ocid="player.toggle"
+            onClick={handleSubscribe}
+            className={`mt-2 flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+              subscribed
+                ? "bg-orange text-white"
+                : "border border-border text-foreground hover:bg-surface2"
+            }`}
+          >
+            {subscribed ? (
+              <>
+                <Check size={12} /> Subscribed
+              </>
+            ) : (
+              <>Subscribe</>
+            )}
+          </button>
         </div>
 
         <button
@@ -503,6 +574,19 @@ export function VideoPlayerPage() {
           >
             <Share2 size={15} />
             <span>Share</span>
+          </button>
+
+          <button
+            type="button"
+            data-ocid="player.save_button"
+            onClick={() => {
+              setPlaylists(getPlaylists());
+              setSaveSheetOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-sm font-medium transition-colors flex-shrink-0"
+          >
+            <Bookmark size={15} />
+            <span>Save</span>
           </button>
 
           <button
@@ -611,6 +695,97 @@ export function VideoPlayerPage() {
           </div>
         )}
       </div>
+
+      {/* Save to Playlist Sheet */}
+      <AnimatePresence>
+        {saveSheetOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 bg-black/60"
+              onClick={() => setSaveSheetOpen(false)}
+            />
+            {/* Sheet */}
+            <motion.div
+              data-ocid="player.sheet"
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 z-50 bg-surface1 rounded-t-2xl max-h-[70vh] flex flex-col max-w-[430px] mx-auto"
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
+                <span className="text-sm font-semibold">Save to playlist</span>
+                <button
+                  type="button"
+                  data-ocid="player.close_button"
+                  onClick={() => setSaveSheetOpen(false)}
+                  className="p-1 rounded-full hover:bg-surface2"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {playlists.map((pl) => {
+                  const inList = isVideoInPlaylist(pl.id, selectedVideo.id);
+                  return (
+                    <button
+                      key={pl.id}
+                      type="button"
+                      data-ocid="player.toggle"
+                      onClick={() => handleTogglePlaylist(pl.id)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-surface2 transition-colors border-b border-border/20"
+                    >
+                      <div className="text-left">
+                        <p className="text-sm font-medium text-foreground">
+                          {pl.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {pl.videoIds.length} video
+                          {pl.videoIds.length !== 1 ? "s" : ""}
+                        </p>
+                      </div>
+                      {inList && (
+                        <Check
+                          size={16}
+                          className="text-orange flex-shrink-0"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* New playlist */}
+              <div className="px-4 py-3 border-t border-border/40 flex gap-2">
+                <Input
+                  data-ocid="player.input"
+                  value={newPlaylistName}
+                  onChange={(e) => setNewPlaylistName(e.target.value)}
+                  placeholder="New playlist name..."
+                  className="flex-1 h-9 text-sm bg-surface2 border-border/60"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreatePlaylist();
+                  }}
+                />
+                <button
+                  type="button"
+                  data-ocid="player.primary_button"
+                  onClick={handleCreatePlaylist}
+                  disabled={!newPlaylistName.trim()}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange text-white text-sm font-medium disabled:opacity-40 transition-colors"
+                >
+                  <Plus size={14} /> Create
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

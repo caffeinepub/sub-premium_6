@@ -18,8 +18,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowLeft,
+  Bookmark,
   Camera,
   Link,
+  ListVideo,
   Loader2,
   LogIn,
   Plus,
@@ -27,7 +29,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
@@ -41,6 +43,11 @@ import {
   useSaveProfile,
   useUserProfile,
 } from "../hooks/useQueries";
+import {
+  deletePlaylist,
+  getPlaylists,
+  removeVideoFromPlaylist,
+} from "../utils/playlists";
 
 export function MenuPage() {
   const { setPage, setSelectedVideo } = useApp();
@@ -59,6 +66,10 @@ export function MenuPage() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [avatarPreview, setAvatarPreview] = useState("");
   const [uploading, setUploading] = useState(false);
+
+  // Playlist state
+  const [playlists, setPlaylists] = useState(getPlaylists());
+  const [expandedPlaylist, setExpandedPlaylist] = useState<string | null>(null);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -145,6 +156,8 @@ export function MenuPage() {
     setPage("player");
   };
 
+  const refreshPlaylists = () => setPlaylists(getPlaylists());
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -164,6 +177,137 @@ export function MenuPage() {
       </div>
 
       <div className="px-4 py-5 space-y-6">
+        {/* ── PLAYLISTS SECTION ─────────────────────────────────────────── */}
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <ListVideo size={14} className="text-orange" />
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Playlists
+            </p>
+          </div>
+
+          {playlists.length === 0 ? (
+            <div
+              data-ocid="menu.empty_state"
+              className="text-center py-6 text-muted-foreground text-sm"
+            >
+              No playlists yet
+            </div>
+          ) : (
+            <div data-ocid="menu.list" className="space-y-2">
+              {playlists.map((pl, idx) => {
+                const isExpanded = expandedPlaylist === pl.id;
+                const playlistVideos = pl.videoIds
+                  .map((id) => allVideos.find((v) => v.id === id))
+                  .filter((v): v is Video => !!v);
+
+                return (
+                  <div
+                    key={pl.id}
+                    data-ocid={`menu.item.${idx + 1}`}
+                    className="bg-surface2/50 rounded-xl overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedPlaylist(isExpanded ? null : pl.id)
+                      }
+                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-surface2 transition-colors text-left"
+                    >
+                      <Bookmark
+                        size={15}
+                        className="text-orange flex-shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground">
+                          {pl.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {pl.videoIds.length} video
+                          {pl.videoIds.length !== 1 ? "s" : ""}
+                        </p>
+                      </div>
+                      {pl.id !== "watch_later" && (
+                        <button
+                          type="button"
+                          data-ocid={`menu.delete_button.${idx + 1}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deletePlaylist(pl.id);
+                            refreshPlaylists();
+                          }}
+                          className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </button>
+
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0 }}
+                          animate={{ height: "auto" }}
+                          exit={{ height: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="border-t border-border/30 px-3 py-2 space-y-2">
+                            {playlistVideos.length === 0 ? (
+                              <p className="text-xs text-muted-foreground py-2 text-center">
+                                No videos yet
+                              </p>
+                            ) : (
+                              playlistVideos.map((video) => (
+                                <div
+                                  key={video.id}
+                                  className="flex items-center gap-2"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => handleVideoClick(video)}
+                                    className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
+                                  >
+                                    <div className="w-14 h-9 rounded bg-surface2 flex-shrink-0 overflow-hidden">
+                                      {video.thumbnailBlobId?.getDirectURL?.() ? (
+                                        <img
+                                          src={video.thumbnailBlobId.getDirectURL()}
+                                          alt=""
+                                          className="w-full h-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="w-full h-full bg-surface2" />
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-foreground line-clamp-2">
+                                      {video.title}
+                                    </p>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      removeVideoFromPlaylist(pl.id, video.id);
+                                      refreshPlaylists();
+                                    }}
+                                    className="p-1 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <Separator className="bg-border/60" />
+
         {/* Not logged in */}
         {!isInitializing && !identity && (
           <motion.div
