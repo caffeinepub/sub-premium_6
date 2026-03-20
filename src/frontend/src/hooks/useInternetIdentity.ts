@@ -14,6 +14,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { loadConfig } from "../config";
@@ -155,6 +156,9 @@ export function InternetIdentityProvider({
   const [identity, setIdentity] = useState<Identity | undefined>(undefined);
   const [loginStatus, setStatus] = useState<Status>("initializing");
   const [loginError, setError] = useState<Error | undefined>(undefined);
+  // Track whether we've completed initialization so the finally block
+  // doesn't overwrite a "success" status set during init.
+  const initAuthenticatedRef = useRef(false);
 
   const setErrorMessage = useCallback((message: string) => {
     setStatus("loginError");
@@ -218,6 +222,7 @@ export function InternetIdentityProvider({
       .then(() => {
         setIdentity(undefined);
         setAuthClient(undefined);
+        initAuthenticatedRef.current = false;
         setStatus("idle");
         setError(undefined);
       })
@@ -236,6 +241,7 @@ export function InternetIdentityProvider({
     void (async () => {
       try {
         setStatus("initializing");
+        initAuthenticatedRef.current = false;
         let existingClient = authClient;
         if (!existingClient) {
           existingClient = await createAuthClient(createOptions);
@@ -247,16 +253,20 @@ export function InternetIdentityProvider({
         if (isAuthenticated) {
           const loadedIdentity = existingClient.getIdentity();
           setIdentity(loadedIdentity);
+          initAuthenticatedRef.current = true;
+          setStatus("success");
+        } else {
+          setStatus("idle");
         }
       } catch (unknownError) {
-        setStatus("loginError");
-        setError(
-          unknownError instanceof Error
-            ? unknownError
-            : new Error("Initialization failed"),
-        );
-      } finally {
-        if (!cancelled) setStatus("idle");
+        if (!cancelled) {
+          setStatus("loginError");
+          setError(
+            unknownError instanceof Error
+              ? unknownError
+              : new Error("Initialization failed"),
+          );
+        }
       }
     })();
     return () => {

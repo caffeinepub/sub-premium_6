@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UserProfile, UserSettings, Video, VideoView } from "../backend";
 import { useActor } from "./useActor";
+import { useInternetIdentity } from "./useInternetIdentity";
 
 export function useListVideos(searchTerm?: string) {
   const { actor, isFetching } = useActor();
@@ -62,10 +63,12 @@ export function useSettings() {
 
 export function useSaveProfile() {
   const { actor } = useActor();
+  const { identity } = useInternetIdentity();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (profile: UserProfile) => {
-      if (!actor) throw new Error("Not authenticated");
+      if (!identity) throw new Error("Not authenticated — please log in first");
+      if (!actor) throw new Error("Actor not ready");
       await actor.saveCallerUserProfile(profile);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["userProfile"] }),
@@ -98,11 +101,14 @@ export function useDeleteVideo() {
 
 export function useIncrementViews() {
   const { actor } = useActor();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (videoId: string) => {
       if (!actor) return;
       await actor.incrementViews(videoId);
     },
+    // Refresh video list after view increment so real count shows immediately
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["videos"] }),
   });
 }
 

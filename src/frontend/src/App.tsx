@@ -31,31 +31,31 @@ function AppContent() {
     <div className="flex flex-col h-[100dvh] max-w-[430px] mx-auto relative bg-background">
       <Header searchTerm={searchTerm} onSearchChange={setSearchTerm} />
 
-      {/* Main scrollable area */}
-      <div className="flex-1 overflow-hidden">
+      {/* Main scrollable area — pb-16 reserves space for fixed BottomNav */}
+      <div className="flex-1 overflow-y-auto pb-16">
         <AnimatePresence mode="wait">
           {page === "home" && (
-            <div key="home" className="h-full overflow-y-auto">
+            <div key="home">
               <HomePage searchTerm={searchTerm} />
             </div>
           )}
           {page === "player" && (
-            <div key="player" className="h-full flex flex-col">
+            <div key="player">
               <VideoPlayerPage />
             </div>
           )}
           {page === "upload" && (
-            <div key="upload" className="h-full overflow-y-auto">
+            <div key="upload">
               <UploadPage />
             </div>
           )}
           {page === "history" && (
-            <div key="history" className="h-full overflow-y-auto">
+            <div key="history">
               <HistoryPage />
             </div>
           )}
           {page === "menu" && (
-            <div key="menu" className="h-full overflow-y-auto">
+            <div key="menu">
               <MenuPage />
             </div>
           )}

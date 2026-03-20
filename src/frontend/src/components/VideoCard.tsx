@@ -6,6 +6,7 @@ interface VideoCardProps {
   video: Video;
   index: number;
   onClick: () => void;
+  progress?: number; // 0-100, show progress bar on thumbnail
 }
 
 function formatViews(views: bigint): string {
@@ -31,7 +32,7 @@ function timeAgo(uploadTime: bigint): string {
   return "Just now";
 }
 
-export function VideoCard({ video, index, onClick }: VideoCardProps) {
+export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
   const thumbUrl = video.thumbnailBlobId?.getDirectURL?.();
 
   return (
@@ -69,6 +70,15 @@ export function VideoCard({ video, index, onClick }: VideoCardProps) {
         <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
           --:--
         </div>
+        {/* Progress bar */}
+        {progress !== undefined && progress > 0 && (
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+            <div
+              className="h-full bg-orange-500"
+              style={{ width: `${Math.min(progress, 100)}%` }}
+            />
+          </div>
+        )}
       </button>
 
       {/* Info */}

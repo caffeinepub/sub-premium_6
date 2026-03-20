@@ -21,6 +21,7 @@ import {
   Camera,
   Link,
   Loader2,
+  LogIn,
   Plus,
   Save,
   Trash2,
@@ -32,6 +33,7 @@ import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
 import type { Video } from "../backend";
 import { useApp } from "../context/AppContext";
+import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import {
   useDeleteVideo,
@@ -42,7 +44,8 @@ import {
 
 export function MenuPage() {
   const { setPage, setSelectedVideo } = useApp();
-  const { identity } = useInternetIdentity();
+  const { identity, login, isInitializing } = useInternetIdentity();
+  const { actor, isFetching: actorFetching } = useActor();
   const { data: profile, isLoading: profileLoading } = useUserProfile();
   const saveProfile = useSaveProfile();
   const { data: allVideos = [] } = useListVideos();
@@ -88,7 +91,20 @@ export function MenuPage() {
     }
   };
 
+  const isActorReady = !!actor && !actorFetching;
+  const isSaveDisabled =
+    saveProfile.isPending || uploading || !isActorReady || profileLoading;
+
   const handleSave = async () => {
+    if (!identity) {
+      toast.error("Please log in first");
+      login();
+      return;
+    }
+    if (!isActorReady) {
+      toast.error("Still connecting — please try again in a moment.");
+      return;
+    }
     try {
       await saveProfile.mutateAsync({
         displayName,
@@ -97,8 +113,14 @@ export function MenuPage() {
         avatarBlobId: avatarUrl,
       });
       toast.success("Profile saved!");
-    } catch {
-      toast.error("Failed to save profile");
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      const message = raw.includes("Not authenticated")
+        ? "Session expired — please log in again."
+        : raw.includes("Actor not ready")
+          ? "Network not ready, please try again."
+          : raw;
+      toast.error(message);
     }
   };
 
@@ -138,262 +160,324 @@ export function MenuPage() {
         >
           <ArrowLeft size={20} />
         </button>
-        <h1 className="font-bold text-base">Profile & Settings</h1>
+        <h1 className="font-bold text-base">Profile &amp; Settings</h1>
       </div>
 
       <div className="px-4 py-5 space-y-6">
-        {/* Avatar */}
-        <div className="flex flex-col items-center gap-3">
-          <div className="relative">
-            <Avatar className="w-20 h-20 border-2 border-orange">
-              {(avatarPreview || avatarUrl) && (
-                <AvatarImage src={avatarPreview || avatarUrl} />
-              )}
-              <AvatarFallback className="bg-surface2 text-xl font-bold text-orange">
-                {displayName.slice(0, 2).toUpperCase() || "SP"}
-              </AvatarFallback>
-            </Avatar>
-            <button
-              type="button"
-              data-ocid="menu.upload_button"
-              onClick={() => avatarInputRef.current?.click()}
-              disabled={uploading}
-              className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-orange flex items-center justify-center shadow-lg"
-            >
-              <Camera size={14} className="text-white" />
-            </button>
-            <input
-              ref={avatarInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleAvatarChange(file);
-              }}
-            />
-          </div>
-          {profileLoading && <Skeleton className="h-4 w-24 bg-surface2" />}
-          {!profileLoading && (
+        {/* Not logged in */}
+        {!isInitializing && !identity && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex flex-col items-center gap-4 py-10"
+          >
+            <div className="w-16 h-16 rounded-full bg-surface2 flex items-center justify-center">
+              <LogIn size={28} className="text-orange" />
+            </div>
             <div className="text-center">
-              <p className="font-bold">{displayName || "Your Name"}</p>
+              <p className="font-bold text-base mb-1">
+                Log in to edit your profile
+              </p>
               <p className="text-sm text-muted-foreground">
-                @{username || "username"}
+                Sign in with Internet Identity to access and save your profile.
               </p>
             </div>
-          )}
-        </div>
-
-        {/* Edit Profile */}
-        <div className="space-y-3">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Edit Profile
-          </p>
-
-          <div>
-            <Label className="text-xs mb-1 block">Display Name</Label>
-            <Input
-              data-ocid="menu.input"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Your display name"
-              className="bg-surface2 border-border focus-visible:ring-orange"
-            />
-          </div>
-
-          <div>
-            <Label className="text-xs mb-1 block">Username</Label>
-            <Input
-              data-ocid="menu.input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="@username"
-              className="bg-surface2 border-border focus-visible:ring-orange"
-            />
-          </div>
-
-          <div>
-            <Label className="text-xs mb-1 block">Bio</Label>
-            <Textarea
-              data-ocid="menu.textarea"
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              placeholder="Tell viewers about yourself..."
-              className="bg-surface2 border-border focus-visible:ring-orange resize-none"
-              rows={3}
-            />
-          </div>
-
-          {/* Links */}
-          <div>
-            <Label className="text-xs mb-1 block">External Links</Label>
-            <div className="space-y-2">
-              {links.map((link, i) => (
-                <div key={link} className="flex items-center gap-2">
-                  <Link
-                    size={12}
-                    className="text-muted-foreground flex-shrink-0"
-                  />
-                  <span className="flex-1 text-sm text-muted-foreground truncate">
-                    {link}
-                  </span>
-                  <button
-                    type="button"
-                    data-ocid={`menu.delete_button.${i + 1}`}
-                    onClick={() =>
-                      setLinks((prev) => prev.filter((_, j) => j !== i))
-                    }
-                    className="p-1 hover:text-destructive transition-colors"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-              <div className="flex gap-2">
-                <Input
-                  data-ocid="menu.search_input"
-                  value={newLink}
-                  onChange={(e) => setNewLink(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAddLink()}
-                  placeholder="https://..."
-                  className="bg-surface2 border-border focus-visible:ring-orange text-sm"
-                />
-                <Button
-                  data-ocid="menu.secondary_button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleAddLink}
-                  className="border-border flex-shrink-0"
-                >
-                  <Plus size={14} />
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <Button
-            data-ocid="menu.save_button"
-            className="w-full bg-orange hover:bg-orange/90 text-white font-semibold"
-            onClick={handleSave}
-            disabled={saveProfile.isPending}
-          >
-            {saveProfile.isPending ? (
-              <>
-                <Loader2 size={14} className="mr-2 animate-spin" /> Saving...
-              </>
-            ) : (
-              <>
-                <Save size={14} className="mr-2" /> Save Profile
-              </>
-            )}
-          </Button>
-        </div>
-
-        <Separator className="bg-border/60" />
-
-        {/* My Videos */}
-        <div>
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-            My Videos ({myVideos.length})
-          </p>
-
-          {myVideos.length === 0 ? (
-            <div
-              data-ocid="menu.empty_state"
-              className="text-center py-8 text-muted-foreground text-sm"
+            <Button
+              data-ocid="menu.primary_button"
+              className="bg-orange hover:bg-orange/90 text-white font-semibold px-8"
+              onClick={login}
             >
-              You haven&apos;t uploaded any videos yet
-            </div>
-          ) : (
-            <div data-ocid="menu.list" className="space-y-3">
-              {myVideos.map((video, i) => (
-                <div
-                  key={video.id}
-                  data-ocid={`menu.item.${i + 1}`}
-                  className="flex gap-3 items-center"
+              <LogIn size={16} className="mr-2" /> Log In
+            </Button>
+          </motion.div>
+        )}
+
+        {/* Initializing */}
+        {isInitializing && (
+          <div
+            data-ocid="menu.loading_state"
+            className="flex flex-col items-center gap-4 py-10"
+          >
+            <Skeleton className="w-16 h-16 rounded-full bg-surface2" />
+            <Skeleton className="h-4 w-32 bg-surface2" />
+            <Skeleton className="h-4 w-48 bg-surface2" />
+          </div>
+        )}
+
+        {/* Logged-in profile editor */}
+        {!isInitializing && identity && (
+          <>
+            {/* Avatar */}
+            <div className="flex flex-col items-center gap-3">
+              <div className="relative">
+                <Avatar className="w-20 h-20 border-2 border-orange">
+                  {(avatarPreview || avatarUrl) && (
+                    <AvatarImage src={avatarPreview || avatarUrl} />
+                  )}
+                  <AvatarFallback className="bg-surface2 text-xl font-bold text-orange">
+                    {displayName.slice(0, 2).toUpperCase() || "SP"}
+                  </AvatarFallback>
+                </Avatar>
+                <button
+                  type="button"
+                  data-ocid="menu.upload_button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={uploading}
+                  className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-orange flex items-center justify-center shadow-lg"
                 >
-                  <button
-                    type="button"
-                    className="relative w-24 h-14 rounded-lg overflow-hidden bg-surface2 flex-shrink-0"
-                    onClick={() => handleVideoClick(video)}
-                    aria-label={`Play ${video.title}`}
-                  >
-                    {video.thumbnailBlobId?.getDirectURL?.() ? (
-                      <img
-                        src={video.thumbnailBlobId.getDirectURL()}
-                        alt={video.title}
-                        className="w-full h-full object-cover"
+                  <Camera size={14} className="text-white" />
+                </button>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleAvatarChange(file);
+                  }}
+                />
+              </div>
+              {profileLoading && <Skeleton className="h-4 w-24 bg-surface2" />}
+              {!profileLoading && (
+                <div className="text-center">
+                  <p className="font-bold">{displayName || "Your Name"}</p>
+                  <p className="text-sm text-muted-foreground">
+                    @{username || "username"}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Network connecting banner */}
+            {actorFetching && (
+              <div
+                data-ocid="menu.loading_state"
+                className="flex items-center gap-2 rounded-xl bg-surface2/60 px-3 py-2.5 text-sm text-muted-foreground"
+              >
+                <Loader2 size={14} className="animate-spin flex-shrink-0" />
+                <span>Connecting to network…</span>
+              </div>
+            )}
+
+            {/* Edit Profile */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Edit Profile
+              </p>
+
+              <div>
+                <Label className="text-xs mb-1 block">Display Name</Label>
+                <Input
+                  data-ocid="menu.input"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your display name"
+                  className="bg-surface2 border-border focus-visible:ring-orange"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs mb-1 block">Username</Label>
+                <Input
+                  data-ocid="menu.input"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="@username"
+                  className="bg-surface2 border-border focus-visible:ring-orange"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs mb-1 block">Bio</Label>
+                <Textarea
+                  data-ocid="menu.textarea"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  placeholder="Tell viewers about yourself..."
+                  className="bg-surface2 border-border focus-visible:ring-orange resize-none"
+                  rows={3}
+                />
+              </div>
+
+              {/* Links */}
+              <div>
+                <Label className="text-xs mb-1 block">External Links</Label>
+                <div className="space-y-2">
+                  {links.map((link, i) => (
+                    <div key={link} className="flex items-center gap-2">
+                      <Link
+                        size={12}
+                        className="text-muted-foreground flex-shrink-0"
                       />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <div className="w-5 h-5 rounded-full bg-orange/20 flex items-center justify-center">
-                          <svg
-                            aria-hidden="true"
-                            width="8"
-                            height="8"
-                            viewBox="0 0 8 8"
-                            fill="none"
-                          >
-                            <path
-                              d="M2 1L7 4L2 7V1Z"
-                              fill="oklch(0.68 0.18 35)"
-                            />
-                          </svg>
-                        </div>
-                      </div>
-                    )}
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold line-clamp-2 leading-snug">
-                      {video.title}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {Number(video.views).toLocaleString()} views
-                    </p>
-                  </div>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
+                      <span className="flex-1 text-sm text-muted-foreground truncate">
+                        {link}
+                      </span>
                       <button
                         type="button"
                         data-ocid={`menu.delete_button.${i + 1}`}
-                        className="p-2 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
+                        onClick={() =>
+                          setLinks((prev) => prev.filter((_, j) => j !== i))
+                        }
+                        className="p-1 hover:text-destructive transition-colors"
                       >
-                        <Trash2 size={16} />
+                        <X size={12} />
                       </button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent
-                      data-ocid="menu.dialog"
-                      className="bg-popover border-border max-w-xs mx-4"
+                    </div>
+                  ))}
+                  <div className="flex gap-2">
+                    <Input
+                      data-ocid="menu.search_input"
+                      value={newLink}
+                      onChange={(e) => setNewLink(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleAddLink()}
+                      placeholder="https://..."
+                      className="bg-surface2 border-border focus-visible:ring-orange text-sm"
+                    />
+                    <Button
+                      data-ocid="menu.secondary_button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddLink}
+                      className="border-border flex-shrink-0"
                     >
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete video?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          &ldquo;{video.title}&rdquo; will be permanently
-                          deleted.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel
-                          data-ocid="menu.cancel_button"
-                          className="border-border"
-                        >
-                          Cancel
-                        </AlertDialogCancel>
-                        <AlertDialogAction
-                          data-ocid="menu.confirm_button"
-                          className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                          onClick={() => handleDeleteVideo(video.id)}
-                        >
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                      <Plus size={14} />
+                    </Button>
+                  </div>
                 </div>
-              ))}
+              </div>
+
+              <Button
+                data-ocid="menu.save_button"
+                className="w-full bg-orange hover:bg-orange/90 text-white font-semibold disabled:opacity-60"
+                onClick={handleSave}
+                disabled={isSaveDisabled}
+              >
+                {saveProfile.isPending ? (
+                  <>
+                    <Loader2 size={14} className="mr-2 animate-spin" />{" "}
+                    Saving...
+                  </>
+                ) : actorFetching ? (
+                  <>
+                    <Loader2 size={14} className="mr-2 animate-spin" />{" "}
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Save size={14} className="mr-2" /> Save Profile
+                  </>
+                )}
+              </Button>
             </div>
-          )}
-        </div>
+
+            <Separator className="bg-border/60" />
+
+            {/* My Videos */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                My Videos ({myVideos.length})
+              </p>
+
+              {myVideos.length === 0 ? (
+                <div
+                  data-ocid="menu.empty_state"
+                  className="text-center py-8 text-muted-foreground text-sm"
+                >
+                  You haven&apos;t uploaded any videos yet
+                </div>
+              ) : (
+                <div data-ocid="menu.list" className="space-y-3">
+                  {myVideos.map((video, i) => (
+                    <div
+                      key={video.id}
+                      data-ocid={`menu.item.${i + 1}`}
+                      className="flex gap-3 items-center"
+                    >
+                      <button
+                        type="button"
+                        className="relative w-24 h-14 rounded-lg overflow-hidden bg-surface2 flex-shrink-0"
+                        onClick={() => handleVideoClick(video)}
+                        aria-label={`Play ${video.title}`}
+                      >
+                        {video.thumbnailBlobId?.getDirectURL?.() ? (
+                          <img
+                            src={video.thumbnailBlobId.getDirectURL()}
+                            alt={video.title}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <div className="w-5 h-5 rounded-full bg-orange/20 flex items-center justify-center">
+                              <svg
+                                aria-hidden="true"
+                                width="8"
+                                height="8"
+                                viewBox="0 0 8 8"
+                                fill="none"
+                              >
+                                <path
+                                  d="M2 1L7 4L2 7V1Z"
+                                  fill="oklch(0.68 0.18 35)"
+                                />
+                              </svg>
+                            </div>
+                          </div>
+                        )}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold line-clamp-2 leading-snug">
+                          {video.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {Number(video.views).toLocaleString()} views
+                        </p>
+                      </div>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button
+                            type="button"
+                            data-ocid={`menu.delete_button.${i + 1}`}
+                            className="p-2 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent
+                          data-ocid="menu.dialog"
+                          className="bg-popover border-border max-w-xs mx-4"
+                        >
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete video?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              &ldquo;{video.title}&rdquo; will be permanently
+                              deleted.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel
+                              data-ocid="menu.cancel_button"
+                              className="border-border"
+                            >
+                              Cancel
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                              data-ocid="menu.confirm_button"
+                              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                              onClick={() => handleDeleteVideo(video.id)}
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Footer */}
