@@ -10,6 +10,8 @@ import AccessControl "authorization/access-control";
 import MixinStorage "blob-storage/Mixin";
 import Storage "blob-storage/Storage";
 
+
+
 actor {
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
@@ -22,6 +24,12 @@ actor {
     avatarBlobId : Text;
   };
 
+  public type CaptionTrack = {
+    language : Text;
+    captionLabel : Text;
+    vtt : Text;
+  };
+
   public type Video = {
     id : Text;
     title : Text;
@@ -32,6 +40,7 @@ actor {
     views : Nat;
     uploadTime : Time.Time;
     status : Text;
+    captionVtt : Text;
   };
 
   public type VideoView = {
@@ -46,6 +55,7 @@ actor {
 
   let profiles = Map.empty<Principal, UserProfile>();
   let videos = Map.empty<Text, Video>();
+  let captionTracks = Map.empty<Text, [CaptionTrack]>();
   let userSettings = Map.empty<Principal, UserSettings>();
   let watchHistory = Map.empty<Principal, [VideoView]>();
 
@@ -102,13 +112,13 @@ actor {
       views = 0;
       uploadTime = Time.now();
       status = "uploading";
+      captionVtt = "";
     };
 
     videos.add(videoId, video);
     videoId;
   };
 
-  // Any logged-in user can update their OWN video status
   public shared ({ caller }) func updateVideoStatus(videoId : Text, status : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can update video status");
@@ -143,6 +153,7 @@ actor {
         };
 
         videos.remove(videoId);
+        captionTracks.remove(videoId);
       };
     };
   };
@@ -164,6 +175,93 @@ actor {
         let updatedVideo : Video = { video with views = video.views + 1 };
         videos.add(videoId, updatedVideo);
       };
+    };
+  };
+
+  // Caption Functions
+  public shared ({ caller }) func setCaptionTrack(videoId : Text, language : Text, captionLabel : Text, vtt : Text) : async () {
+    switch (videos.get(videoId)) {
+      case (null) {
+        Runtime.trap("Video not found");
+      };
+      case (?video) {
+        let isOwner = video.creatorId == toText(caller);
+        let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+
+        if (not (isOwner or isAdmin)) {
+          Runtime.trap("Unauthorized: Only video owners or admin can add captions");
+        };
+
+        let existingTracks = switch (captionTracks.get(videoId)) {
+          case (null) { [] };
+          case (?tracks) { tracks };
+        };
+
+        let newTrack : CaptionTrack = { language; captionLabel; vtt };
+
+        let filteredTracks = existingTracks.filter(func(track) { track.language != language });
+
+        let combinedTracks = [newTrack].concat(filteredTracks);
+
+        captionTracks.add(videoId, combinedTracks);
+      };
+    };
+  };
+
+  public shared ({ caller }) func removeCaptionTrack(videoId : Text, language : Text) : async () {
+    switch (videos.get(videoId)) {
+      case (null) {
+        Runtime.trap("Video not found");
+      };
+      case (?video) {
+        let isOwner = video.creatorId == toText(caller);
+        let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+
+        if (not (isOwner or isAdmin)) {
+          Runtime.trap("Unauthorized: Only video owners or admin can remove captions");
+        };
+
+        let existingTracks = switch (captionTracks.get(videoId)) {
+          case (null) { [] };
+          case (?tracks) { tracks };
+        };
+
+        let filteredTracks = existingTracks.filter(func(track) { track.language != language });
+
+        captionTracks.add(videoId, filteredTracks);
+      };
+    };
+  };
+
+  public query ({ caller }) func getCaptionTracks(videoId : Text) : async [CaptionTrack] {
+    switch (captionTracks.get(videoId)) {
+      case (null) { [] };
+      case (?tracks) { tracks };
+    };
+  };
+
+  // Legacy Caption Functions
+  public shared ({ caller }) func updateVideoCaption(videoId : Text, vtt : Text) : async () {
+    switch (videos.get(videoId)) {
+      case (null) { Runtime.trap("Video not found") };
+      case (?video) {
+        let isOwner = video.creatorId == toText(caller);
+        let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+
+        if (not (isOwner or isAdmin)) {
+          Runtime.trap("Unauthorized: Only video owners or admin can update captions");
+        };
+
+        let updatedVideo : Video = { video with captionVtt = vtt };
+        videos.add(videoId, updatedVideo);
+      };
+    };
+  };
+
+  public query ({ caller }) func getVideoCaption(videoId : Text) : async Text {
+    switch (videos.get(videoId)) {
+      case (null) { Runtime.trap("Video not found") };
+      case (?video) { video.captionVtt };
     };
   };
 

@@ -22,6 +22,7 @@ export interface Video {
     views: bigint;
     thumbnailBlobId: ExternalBlob;
     creatorId: string;
+    captionVtt: string;
     creatorName: string;
     uploadTime: Time;
 }
@@ -33,6 +34,11 @@ export interface UserSettings {
 export interface VideoView {
     timestamp: Time;
     videoId: string;
+}
+export interface CaptionTrack {
+    vtt: string;
+    captionLabel: string;
+    language: string;
 }
 export interface UserProfile {
     bio: string;
@@ -50,15 +56,20 @@ export interface backendInterface {
     deleteVideo(videoId: string): Promise<void>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
+    getCaptionTracks(videoId: string): Promise<Array<CaptionTrack>>;
     getSettings(): Promise<UserSettings | null>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
+    getVideoCaption(videoId: string): Promise<string>;
     getWatchHistory(): Promise<Array<VideoView>>;
     incrementViews(videoId: string): Promise<void>;
     isCallerAdmin(): Promise<boolean>;
     listReadyVideos(): Promise<Array<Video>>;
+    removeCaptionTrack(videoId: string, language: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     searchVideos(searchTerm: string): Promise<Array<Video>>;
+    setCaptionTrack(videoId: string, language: string, captionLabel: string, vtt: string): Promise<void>;
     updateSettings(settings: UserSettings): Promise<void>;
+    updateVideoCaption(videoId: string, vtt: string): Promise<void>;
     updateVideoStatus(videoId: string, status: string): Promise<void>;
     updateWatchHistory(videoId: string): Promise<void>;
     uploadVideo(id: string, title: string, videoBlob: ExternalBlob, thumbnailBlob: ExternalBlob): Promise<string>;

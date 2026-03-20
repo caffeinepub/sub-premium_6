@@ -6,13 +6,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Bookmark,
+  Captions,
   Check,
   Download,
   Eye,
   MessageCircle,
   Plus,
+  SendHorizontal,
   Share2,
-  SkipForward,
   ThumbsDown,
   ThumbsUp,
   X,
@@ -25,6 +26,7 @@ import { VideoCard } from "../components/VideoCard";
 import { useApp } from "../context/AppContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import {
+  useGetCaptionTracks,
   useIncrementViews,
   useListVideos,
   useUpdateWatchHistory,
@@ -84,6 +86,7 @@ export function VideoPlayerPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const watchStartRef = useRef<number>(0);
   const lastSaveRef = useRef<number>(0);
+  const captionBlobUrlRef = useRef<string | null>(null);
 
   const [liked, setLiked] = useState(false);
   const [disliked, setDisliked] = useState(false);
@@ -98,12 +101,102 @@ export function VideoPlayerPage() {
   const [saveSheetOpen, setSaveSheetOpen] = useState(false);
   const [playlists, setPlaylists] = useState(getPlaylists());
   const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
 
   const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(
     null,
   );
   const [nextVideo, setNextVideo] = useState<Video | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // CC state
+  const [ccEnabled, setCcEnabled] = useState(() => {
+    try {
+      return localStorage.getItem("sp_cc") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [selectedLang, setSelectedLang] = useState(() => {
+    try {
+      return localStorage.getItem("sp_caption_lang") || "en";
+    } catch {
+      return "en";
+    }
+  });
+
+  const { data: captionTracks = [] } = useGetCaptionTracks(
+    selectedVideo?.id ?? "",
+    true,
+  );
+
+  const hasTracks = captionTracks.length > 0;
+  const isCreator =
+    identity?.getPrincipal().toString() === selectedVideo?.creatorId;
+
+  // Active track: match selectedLang or fallback to first
+  const activeTrack =
+    captionTracks.find((t) => t.language === selectedLang) ??
+    captionTracks[0] ??
+    null;
+
+  // Build blob URL for active track
+  useEffect(() => {
+    if (captionBlobUrlRef.current) {
+      URL.revokeObjectURL(captionBlobUrlRef.current);
+      captionBlobUrlRef.current = null;
+    }
+    if (ccEnabled && activeTrack?.vtt) {
+      captionBlobUrlRef.current = URL.createObjectURL(
+        new Blob([activeTrack.vtt], { type: "text/vtt" }),
+      );
+    }
+  }, [ccEnabled, activeTrack]);
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (captionBlobUrlRef.current) {
+        URL.revokeObjectURL(captionBlobUrlRef.current);
+        captionBlobUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeTrack change triggers track reload
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    const tracks = vid.textTracks;
+    if (tracks.length > 0) {
+      tracks[0].mode = ccEnabled ? "showing" : "hidden";
+    }
+  }, [ccEnabled, activeTrack]);
+
+  const toggleCc = () => {
+    setCcEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("sp_cc", next ? "1" : "0");
+      } catch {}
+      return next;
+    });
+  };
+
+  const handleLangSelect = (lang: string) => {
+    setSelectedLang(lang);
+    try {
+      localStorage.setItem("sp_caption_lang", lang);
+    } catch {}
+    setLangMenuOpen(false);
+    // Ensure CC is on when user picks a language
+    if (!ccEnabled) {
+      setCcEnabled(true);
+      try {
+        localStorage.setItem("sp_cc", "1");
+      } catch {}
+    }
+  };
 
   const trackView = async (videoId: string) => {
     await Promise.all([
@@ -372,6 +465,11 @@ export function VideoPlayerPage() {
         <h2 className="text-sm font-semibold truncate flex-1 text-foreground">
           {selectedVideo.title}
         </h2>
+        {hasTracks && (
+          <span className="flex-shrink-0 px-2 py-0.5 rounded-full bg-orange text-white text-[10px] font-bold tracking-wide">
+            CC
+          </span>
+        )}
       </div>
 
       {/* Video Player (true 16:9) */}
@@ -389,7 +487,17 @@ export function VideoPlayerPage() {
               className="w-full h-full object-contain"
               onEnded={handleVideoEnded}
               onTimeUpdate={handleTimeUpdate}
-            />
+            >
+              {ccEnabled && captionBlobUrlRef.current && (
+                <track
+                  kind="subtitles"
+                  src={captionBlobUrlRef.current}
+                  default
+                  label={activeTrack?.captionLabel ?? "Captions"}
+                  srcLang={activeTrack?.language ?? "en"}
+                />
+              )}
+            </video>
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-black">
               <p className="text-white/40 text-sm">Video unavailable</p>
@@ -537,6 +645,27 @@ export function VideoPlayerPage() {
           )}
         </button>
 
+        {/* No-captions strip — only visible to the creator */}
+        {!hasTracks && isCreator && (
+          <div
+            data-ocid="player.card"
+            className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border border-orange/25 bg-orange/5"
+          >
+            <p className="text-xs text-muted-foreground leading-snug">
+              <span className="text-orange font-semibold">No captions yet</span>{" "}
+              — add captions for better reach and accessibility.
+            </p>
+            <button
+              type="button"
+              data-ocid="captions.open_modal_button"
+              onClick={() => setPage("upload")}
+              className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-orange text-white text-xs font-semibold hover:bg-orange/90 transition-colors"
+            >
+              Add Captions
+            </button>
+          </div>
+        )}
+
         {/* Action buttons */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
           <button
@@ -599,6 +728,69 @@ export function VideoPlayerPage() {
             <Download size={15} />
             <span>Download</span>
           </button>
+
+          {/* CC toggle — only shown if tracks exist */}
+          {hasTracks && (
+            <button
+              type="button"
+              data-ocid="player.toggle"
+              onClick={toggleCc}
+              style={{ minWidth: "44px", minHeight: "44px" }}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors flex-shrink-0 ${
+                ccEnabled
+                  ? "bg-orange text-white"
+                  : "bg-surface2 text-foreground hover:bg-surface2/80"
+              }`}
+            >
+              <Captions size={15} />
+              <span>CC</span>
+            </button>
+          )}
+
+          {/* Language selector — shown when CC on and multiple tracks */}
+          {hasTracks && captionTracks.length > 1 && (
+            <div className="relative flex-shrink-0">
+              <button
+                type="button"
+                data-ocid="player.select"
+                onClick={() => setLangMenuOpen((p) => !p)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-xs font-medium transition-colors border border-border/40"
+              >
+                {activeTrack?.captionLabel ?? "Lang"}
+                <span className="text-muted-foreground">▾</span>
+              </button>
+              <AnimatePresence>
+                {langMenuOpen && (
+                  <motion.div
+                    data-ocid="player.dropdown_menu"
+                    initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -4, scale: 0.96 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute bottom-full mb-2 right-0 min-w-[140px] bg-popover border border-border/60 rounded-xl shadow-xl overflow-hidden z-50"
+                  >
+                    {captionTracks.map((track) => (
+                      <button
+                        key={track.language}
+                        type="button"
+                        onClick={() => handleLangSelect(track.language)}
+                        className={`w-full text-left px-3 py-2.5 text-sm transition-colors flex items-center justify-between ${
+                          track.language === selectedLang
+                            ? "bg-orange/10 text-orange font-semibold"
+                            : "hover:bg-surface2 text-foreground"
+                        }`}
+                      >
+                        {track.captionLabel}
+                        {track.language === selectedLang && (
+                          <Check size={13} className="text-orange" />
+                        )}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
 
         <div className="border-t border-border/40" />
@@ -612,42 +804,7 @@ export function VideoPlayerPage() {
             </span>
           </div>
 
-          <div className="flex gap-2 mb-4">
-            <Avatar className="w-7 h-7 flex-shrink-0">
-              <AvatarFallback className="bg-accent/20 text-accent text-[10px] font-bold">
-                ME
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 space-y-2">
-              <Textarea
-                data-ocid="player.textarea"
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                placeholder="Add a comment..."
-                className="min-h-[60px] text-sm bg-surface2/50 border-border/40 resize-none"
-                rows={2}
-              />
-              {commentText.trim() && (
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setCommentText("")}
-                    data-ocid="player.cancel_button"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleComment}
-                    data-ocid="player.submit_button"
-                  >
-                    Comment
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
+          {/* Comment list — input is in sticky bar at bottom */}
 
           <div className="space-y-3">
             {comments.map((c, i) => (
@@ -694,6 +851,56 @@ export function VideoPlayerPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Sticky Comment Input Bar — above BottomNav */}
+      <div
+        data-ocid="player.comment_bar"
+        className="fixed left-0 right-0 z-40 flex items-center gap-2 px-3 py-2 border-t border-border/40 max-w-[430px] mx-auto"
+        style={{
+          bottom: "64px",
+          backgroundColor: "#121212",
+          paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))",
+        }}
+      >
+        <Avatar className="w-7 h-7 flex-shrink-0">
+          <AvatarFallback className="bg-accent/20 text-accent text-[10px] font-bold">
+            ME
+          </AvatarFallback>
+        </Avatar>
+        <input
+          data-ocid="player.textarea"
+          type="text"
+          value={commentText}
+          onChange={(e) => setCommentText(e.target.value)}
+          onFocus={(e) => {
+            setTimeout(() => {
+              e.target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }, 300);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && commentText.trim()) handleComment();
+          }}
+          placeholder="Add a comment..."
+          className="flex-1 h-9 rounded-full px-4 text-sm"
+          style={{
+            backgroundColor: "#1a1a1a",
+            color: "#ffffff",
+            border: "1px solid #333",
+            outline: "none",
+          }}
+        />
+        <button
+          type="button"
+          data-ocid="player.submit_button"
+          onClick={handleComment}
+          disabled={!commentText.trim()}
+          className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-colors disabled:opacity-30"
+          style={{ backgroundColor: commentText.trim() ? "#f97316" : "#333" }}
+          aria-label="Post comment"
+        >
+          <SendHorizontal size={16} className="text-white" />
+        </button>
       </div>
 
       {/* Save to Playlist Sheet */}

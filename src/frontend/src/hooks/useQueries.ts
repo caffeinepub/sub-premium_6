@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { UserProfile, UserSettings, Video, VideoView } from "../backend";
+import type {
+  CaptionTrack,
+  UserProfile,
+  UserSettings,
+  Video,
+  VideoView,
+} from "../backend";
 import { useActor } from "./useActor";
 import { useInternetIdentity } from "./useInternetIdentity";
 
@@ -121,5 +127,86 @@ export function useUpdateWatchHistory() {
       await actor.updateWatchHistory(videoId);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["watchHistory"] }),
+  });
+}
+
+export function useGetVideoCaption(videoId: string, enabled: boolean) {
+  const { actor, isFetching } = useActor();
+  return useQuery<string>({
+    queryKey: ["caption", videoId],
+    queryFn: async () => {
+      if (!actor) return "";
+      return actor.getVideoCaption(videoId);
+    },
+    enabled: enabled && !!videoId && !!actor && !isFetching,
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateVideoCaption() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ videoId, vtt }: { videoId: string; vtt: string }) => {
+      if (!actor) throw new Error("Not authenticated");
+      await actor.updateVideoCaption(videoId, vtt);
+    },
+    onSuccess: (_data, { videoId }) =>
+      qc.invalidateQueries({ queryKey: ["caption", videoId] }),
+  });
+}
+
+export function useGetCaptionTracks(videoId: string, enabled = true) {
+  const { actor, isFetching } = useActor();
+  return useQuery<CaptionTrack[]>({
+    queryKey: ["captionTracks", videoId],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getCaptionTracks(videoId);
+    },
+    enabled: enabled && !!videoId && !!actor && !isFetching,
+    staleTime: 60_000,
+  });
+}
+
+export function useSetCaptionTrack() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      videoId,
+      language,
+      captionLabel,
+      vtt,
+    }: {
+      videoId: string;
+      language: string;
+      captionLabel: string;
+      vtt: string;
+    }) => {
+      if (!actor) throw new Error("Not authenticated");
+      await actor.setCaptionTrack(videoId, language, captionLabel, vtt);
+    },
+    onSuccess: (_data, { videoId }) =>
+      qc.invalidateQueries({ queryKey: ["captionTracks", videoId] }),
+  });
+}
+
+export function useRemoveCaptionTrack() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      videoId,
+      language,
+    }: {
+      videoId: string;
+      language: string;
+    }) => {
+      if (!actor) throw new Error("Not authenticated");
+      await actor.removeCaptionTrack(videoId, language);
+    },
+    onSuccess: (_data, { videoId }) =>
+      qc.invalidateQueries({ queryKey: ["captionTracks", videoId] }),
   });
 }

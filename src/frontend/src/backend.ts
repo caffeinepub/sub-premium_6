@@ -97,6 +97,7 @@ export interface Video {
     views: bigint;
     thumbnailBlobId: ExternalBlob;
     creatorId: string;
+    captionVtt: string;
     creatorName: string;
     uploadTime: Time;
 }
@@ -115,6 +116,11 @@ export interface VideoView {
 export interface _CaffeineStorageCreateCertificateResult {
     method: string;
     blob_hash: string;
+}
+export interface CaptionTrack {
+    vtt: string;
+    captionLabel: string;
+    language: string;
 }
 export interface _CaffeineStorageRefillResult {
     success?: boolean;
@@ -143,15 +149,20 @@ export interface backendInterface {
     deleteVideo(videoId: string): Promise<void>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
+    getCaptionTracks(videoId: string): Promise<Array<CaptionTrack>>;
     getSettings(): Promise<UserSettings | null>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
+    getVideoCaption(videoId: string): Promise<string>;
     getWatchHistory(): Promise<Array<VideoView>>;
     incrementViews(videoId: string): Promise<void>;
     isCallerAdmin(): Promise<boolean>;
     listReadyVideos(): Promise<Array<Video>>;
+    removeCaptionTrack(videoId: string, language: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     searchVideos(searchTerm: string): Promise<Array<Video>>;
+    setCaptionTrack(videoId: string, language: string, captionLabel: string, vtt: string): Promise<void>;
     updateSettings(settings: UserSettings): Promise<void>;
+    updateVideoCaption(videoId: string, vtt: string): Promise<void>;
     updateVideoStatus(videoId: string, status: string): Promise<void>;
     updateWatchHistory(videoId: string): Promise<void>;
     uploadVideo(id: string, title: string, videoBlob: ExternalBlob, thumbnailBlob: ExternalBlob): Promise<string>;
@@ -313,6 +324,20 @@ export class Backend implements backendInterface {
             return from_candid_UserRole_n11(this._uploadFile, this._downloadFile, result);
         }
     }
+    async getCaptionTracks(arg0: string): Promise<Array<CaptionTrack>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getCaptionTracks(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getCaptionTracks(arg0);
+            return result;
+        }
+    }
     async getSettings(): Promise<UserSettings | null> {
         if (this.processError) {
             try {
@@ -339,6 +364,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.getUserProfile(arg0);
             return from_candid_opt_n10(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getVideoCaption(arg0: string): Promise<string> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getVideoCaption(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getVideoCaption(arg0);
+            return result;
         }
     }
     async getWatchHistory(): Promise<Array<VideoView>> {
@@ -397,6 +436,20 @@ export class Backend implements backendInterface {
             return from_candid_vec_n14(this._uploadFile, this._downloadFile, result);
         }
     }
+    async removeCaptionTrack(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.removeCaptionTrack(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.removeCaptionTrack(arg0, arg1);
+            return result;
+        }
+    }
     async saveCallerUserProfile(arg0: UserProfile): Promise<void> {
         if (this.processError) {
             try {
@@ -425,6 +478,20 @@ export class Backend implements backendInterface {
             return from_candid_vec_n14(this._uploadFile, this._downloadFile, result);
         }
     }
+    async setCaptionTrack(arg0: string, arg1: string, arg2: string, arg3: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setCaptionTrack(arg0, arg1, arg2, arg3);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setCaptionTrack(arg0, arg1, arg2, arg3);
+            return result;
+        }
+    }
     async updateSettings(arg0: UserSettings): Promise<void> {
         if (this.processError) {
             try {
@@ -436,6 +503,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.updateSettings(arg0);
+            return result;
+        }
+    }
+    async updateVideoCaption(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateVideoCaption(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateVideoCaption(arg0, arg1);
             return result;
         }
     }
@@ -514,6 +595,7 @@ async function from_candid_record_n16(_uploadFile: (file: ExternalBlob) => Promi
     views: bigint;
     thumbnailBlobId: _ExternalBlob;
     creatorId: string;
+    captionVtt: string;
     creatorName: string;
     uploadTime: _Time;
 }): Promise<{
@@ -524,6 +606,7 @@ async function from_candid_record_n16(_uploadFile: (file: ExternalBlob) => Promi
     views: bigint;
     thumbnailBlobId: ExternalBlob;
     creatorId: string;
+    captionVtt: string;
     creatorName: string;
     uploadTime: Time;
 }> {
@@ -535,6 +618,7 @@ async function from_candid_record_n16(_uploadFile: (file: ExternalBlob) => Promi
         views: value.views,
         thumbnailBlobId: await from_candid_ExternalBlob_n17(_uploadFile, _downloadFile, value.thumbnailBlobId),
         creatorId: value.creatorId,
+        captionVtt: value.captionVtt,
         creatorName: value.creatorName,
         uploadTime: value.uploadTime
     };

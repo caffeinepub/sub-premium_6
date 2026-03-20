@@ -10,6 +10,11 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export interface CaptionTrack {
+  'vtt' : string,
+  'captionLabel' : string,
+  'language' : string,
+}
 export type ExternalBlob = Uint8Array;
 export type Time = bigint;
 export interface UserProfile {
@@ -30,6 +35,7 @@ export interface Video {
   'views' : bigint,
   'thumbnailBlobId' : ExternalBlob,
   'creatorId' : string,
+  'captionVtt' : string,
   'creatorName' : string,
   'uploadTime' : Time,
 }
@@ -66,15 +72,20 @@ export interface _SERVICE {
   'deleteVideo' : ActorMethod<[string], undefined>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
+  'getCaptionTracks' : ActorMethod<[string], Array<CaptionTrack>>,
   'getSettings' : ActorMethod<[], [] | [UserSettings]>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'getVideoCaption' : ActorMethod<[string], string>,
   'getWatchHistory' : ActorMethod<[], Array<VideoView>>,
   'incrementViews' : ActorMethod<[string], undefined>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'listReadyVideos' : ActorMethod<[], Array<Video>>,
+  'removeCaptionTrack' : ActorMethod<[string, string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'searchVideos' : ActorMethod<[string], Array<Video>>,
+  'setCaptionTrack' : ActorMethod<[string, string, string, string], undefined>,
   'updateSettings' : ActorMethod<[UserSettings], undefined>,
+  'updateVideoCaption' : ActorMethod<[string, string], undefined>,
   'updateVideoStatus' : ActorMethod<[string, string], undefined>,
   'updateWatchHistory' : ActorMethod<[string], undefined>,
   'uploadVideo' : ActorMethod<

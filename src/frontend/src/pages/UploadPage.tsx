@@ -8,17 +8,19 @@ import {
   FileVideo,
   Image,
   RefreshCw,
+  Subtitles,
   Upload,
   XCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
+import { CaptionManager } from "../components/CaptionManager";
 import { useApp } from "../context/AppContext";
 import { useUpload } from "../context/UploadContext";
 
 export function UploadPage() {
-  const { setPage } = useApp();
+  const { setPage, justUploadedVideoId } = useApp();
   const upload = useUpload();
 
   const [title, setTitle] = useState("");
@@ -55,6 +57,7 @@ export function UploadPage() {
 
   const isUploading = upload.isActive;
   const showProgress = upload.status !== "idle";
+  const uploadReady = upload.status === "ready" && !!justUploadedVideoId;
 
   return (
     <motion.div
@@ -124,6 +127,25 @@ export function UploadPage() {
           />
         </div>
 
+        {/* Title input */}
+        <div>
+          <Label
+            htmlFor="video-title"
+            className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block"
+          >
+            Title *
+          </Label>
+          <Input
+            id="video-title"
+            data-ocid="upload.input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Enter video title..."
+            disabled={isUploading}
+            className="bg-surface2 border-border/60 text-foreground"
+          />
+        </div>
+
         {/* Thumbnail picker */}
         <div>
           <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
@@ -150,111 +172,120 @@ export function UploadPage() {
           />
         </div>
 
-        {/* Title */}
-        <div>
-          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
-            Title *
-          </Label>
-          <Input
-            data-ocid="upload.input"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Enter video title"
-            className="bg-surface2 border-border focus-visible:ring-orange"
-            disabled={isUploading}
-            maxLength={120}
-          />
-        </div>
+        {/* Captions recommended banner — always visible before upload */}
+        {!uploadReady && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-xl border border-orange/40 bg-orange/5 p-4 flex items-start gap-3"
+          >
+            <div className="w-8 h-8 rounded-lg bg-orange/15 flex items-center justify-center flex-shrink-0">
+              <Subtitles size={16} className="text-orange" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-0.5">
+                <p className="text-sm font-bold text-foreground">
+                  Add Captions
+                </p>
+                <span className="px-1.5 py-0.5 rounded-full bg-orange text-white text-[9px] font-bold uppercase tracking-wide">
+                  Recommended
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Captions improve reach by 40% and help viewers watching with
+                sound off. Available after upload.
+              </p>
+            </div>
+          </motion.div>
+        )}
 
-        {/* Progress */}
+        {/* Upload progress */}
         <AnimatePresence>
           {showProgress && (
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="space-y-2"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="rounded-xl border border-border/40 bg-surface2/40 p-4 space-y-2"
             >
-              <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {upload.status === "ready" ? (
+                  <CheckCircle size={16} className="text-green-500" />
+                ) : upload.status === "error" ? (
+                  <XCircle size={16} className="text-destructive" />
+                ) : (
+                  <RefreshCw size={16} className="text-orange animate-spin" />
+                )}
                 <span
-                  data-ocid="upload.loading_state"
                   className={`text-sm font-medium ${
                     upload.status === "ready"
-                      ? "text-green-online"
+                      ? "text-green-500"
                       : upload.status === "error"
                         ? "text-destructive"
                         : "text-orange"
                   }`}
                 >
-                  {upload.status === "ready" && (
-                    <CheckCircle size={14} className="inline mr-1" />
-                  )}
-                  {upload.status === "error" && (
-                    <XCircle size={14} className="inline mr-1" />
-                  )}
                   {getStatusLabel()}
                 </span>
-                {upload.status === "uploading" && (
-                  <span className="text-sm text-muted-foreground">
-                    {upload.progress}%
-                  </span>
-                )}
               </div>
-              {(upload.status === "uploading" ||
-                upload.status === "processing") && (
-                <Progress
-                  value={upload.progress}
-                  className="h-2 bg-surface2 [&>div]:bg-orange"
-                />
+              {upload.status === "uploading" && (
+                <Progress value={upload.progress} className="h-1.5" />
               )}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Actions */}
-        <div className="space-y-2 pt-2">
-          {upload.status === "error" ? (
-            <Button
-              data-ocid="upload.secondary_button"
-              className="w-full bg-orange hover:bg-orange/90 text-white font-semibold"
-              onClick={() => upload.retry()}
-            >
-              <RefreshCw size={16} className="mr-2" /> Retry Upload
-            </Button>
-          ) : (
-            <Button
-              data-ocid="upload.submit_button"
-              className="w-full bg-orange hover:bg-orange/90 text-white font-semibold"
-              onClick={handleUpload}
-              disabled={isUploading || upload.status === "ready" || !videoFile}
-            >
-              {isUploading ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />{" "}
-                  Uploading...
-                </>
-              ) : upload.status === "ready" ? (
-                <>
-                  <CheckCircle size={16} className="mr-2" /> Uploaded!
-                </>
-              ) : (
-                <>
-                  <Upload size={16} className="mr-2" /> Upload Video
-                </>
-              )}
-            </Button>
-          )}
-
-          {/* Cancel always enabled — upload continues in background */}
+        {/* Upload button */}
+        {upload.status !== "ready" && (
           <Button
-            data-ocid="upload.cancel_button"
-            variant="ghost"
-            className="w-full"
-            onClick={() => setPage("home")}
+            type="button"
+            data-ocid="upload.submit_button"
+            onClick={handleUpload}
+            disabled={isUploading || !videoFile || !title.trim()}
+            className="w-full bg-orange hover:bg-orange/90 text-white border-none font-semibold"
           >
-            {isUploading ? "Continue Browsing" : "Cancel"}
+            {isUploading ? (
+              <>
+                <RefreshCw size={16} className="animate-spin mr-2" />
+                Uploading...
+              </>
+            ) : (
+              <>
+                <Upload size={16} className="mr-2" />
+                Upload Video
+              </>
+            )}
           </Button>
-        </div>
+        )}
+
+        {/* Captions section — appears after successful upload */}
+        <AnimatePresence>
+          {uploadReady && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-3"
+            >
+              {/* Prominent caption call-to-action */}
+              <div className="rounded-xl border-2 border-orange/50 bg-orange/8 p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Subtitles size={18} className="text-orange" />
+                  <h2 className="text-sm font-bold text-foreground">
+                    Add Captions
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full bg-orange text-white text-[10px] font-bold">
+                    Recommended
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Captions improve reach by 40% and make your video accessible
+                  to viewers watching with sound off. Add in any language below.
+                </p>
+              </div>
+              <CaptionManager videoId={justUploadedVideoId} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );

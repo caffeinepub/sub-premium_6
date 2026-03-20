@@ -30,6 +30,11 @@ export const UserProfile = IDL.Record({
   'displayName' : IDL.Text,
   'avatarBlobId' : IDL.Text,
 });
+export const CaptionTrack = IDL.Record({
+  'vtt' : IDL.Text,
+  'captionLabel' : IDL.Text,
+  'language' : IDL.Text,
+});
 export const UserSettings = IDL.Record({
   'language' : IDL.Text,
   'darkMode' : IDL.Bool,
@@ -48,6 +53,7 @@ export const Video = IDL.Record({
   'views' : IDL.Nat,
   'thumbnailBlobId' : ExternalBlob,
   'creatorId' : IDL.Text,
+  'captionVtt' : IDL.Text,
   'creatorName' : IDL.Text,
   'uploadTime' : Time,
 });
@@ -84,19 +90,28 @@ export const idlService = IDL.Service({
   'deleteVideo' : IDL.Func([IDL.Text], [], []),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+  'getCaptionTracks' : IDL.Func([IDL.Text], [IDL.Vec(CaptionTrack)], ['query']),
   'getSettings' : IDL.Func([], [IDL.Opt(UserSettings)], ['query']),
   'getUserProfile' : IDL.Func(
       [IDL.Principal],
       [IDL.Opt(UserProfile)],
       ['query'],
     ),
+  'getVideoCaption' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
   'getWatchHistory' : IDL.Func([], [IDL.Vec(VideoView)], ['query']),
   'incrementViews' : IDL.Func([IDL.Text], [], []),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'listReadyVideos' : IDL.Func([], [IDL.Vec(Video)], ['query']),
+  'removeCaptionTrack' : IDL.Func([IDL.Text, IDL.Text], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'searchVideos' : IDL.Func([IDL.Text], [IDL.Vec(Video)], ['query']),
+  'setCaptionTrack' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [],
+      [],
+    ),
   'updateSettings' : IDL.Func([UserSettings], [], []),
+  'updateVideoCaption' : IDL.Func([IDL.Text, IDL.Text], [], []),
   'updateVideoStatus' : IDL.Func([IDL.Text, IDL.Text], [], []),
   'updateWatchHistory' : IDL.Func([IDL.Text], [], []),
   'uploadVideo' : IDL.Func(
@@ -131,6 +146,11 @@ export const idlFactory = ({ IDL }) => {
     'displayName' : IDL.Text,
     'avatarBlobId' : IDL.Text,
   });
+  const CaptionTrack = IDL.Record({
+    'vtt' : IDL.Text,
+    'captionLabel' : IDL.Text,
+    'language' : IDL.Text,
+  });
   const UserSettings = IDL.Record({
     'language' : IDL.Text,
     'darkMode' : IDL.Bool,
@@ -146,6 +166,7 @@ export const idlFactory = ({ IDL }) => {
     'views' : IDL.Nat,
     'thumbnailBlobId' : ExternalBlob,
     'creatorId' : IDL.Text,
+    'captionVtt' : IDL.Text,
     'creatorName' : IDL.Text,
     'uploadTime' : Time,
   });
@@ -182,19 +203,32 @@ export const idlFactory = ({ IDL }) => {
     'deleteVideo' : IDL.Func([IDL.Text], [], []),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+    'getCaptionTracks' : IDL.Func(
+        [IDL.Text],
+        [IDL.Vec(CaptionTrack)],
+        ['query'],
+      ),
     'getSettings' : IDL.Func([], [IDL.Opt(UserSettings)], ['query']),
     'getUserProfile' : IDL.Func(
         [IDL.Principal],
         [IDL.Opt(UserProfile)],
         ['query'],
       ),
+    'getVideoCaption' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
     'getWatchHistory' : IDL.Func([], [IDL.Vec(VideoView)], ['query']),
     'incrementViews' : IDL.Func([IDL.Text], [], []),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'listReadyVideos' : IDL.Func([], [IDL.Vec(Video)], ['query']),
+    'removeCaptionTrack' : IDL.Func([IDL.Text, IDL.Text], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'searchVideos' : IDL.Func([IDL.Text], [IDL.Vec(Video)], ['query']),
+    'setCaptionTrack' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [],
+        [],
+      ),
     'updateSettings' : IDL.Func([UserSettings], [], []),
+    'updateVideoCaption' : IDL.Func([IDL.Text, IDL.Text], [], []),
     'updateVideoStatus' : IDL.Func([IDL.Text, IDL.Text], [], []),
     'updateWatchHistory' : IDL.Func([IDL.Text], [], []),
     'uploadVideo' : IDL.Func(
