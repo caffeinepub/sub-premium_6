@@ -15,26 +15,71 @@ import {
   XCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CaptionManager } from "../components/CaptionManager";
+import { UploadLimitsPanel } from "../components/UploadLimitsPanel";
 import { useApp } from "../context/AppContext";
 import { useUpload } from "../context/UploadContext";
+import { getFileFingerprint } from "../utils/uploadDB";
 
-const MAX_BLOCK_MB = 4 * 1024; // 4 GB in MB
+const MAX_BLOCK_MB = 1024; // 1 GB in MB
 const MAX_WARN_MB = 500; // 500 MB
+
+const RECENT_FINGERPRINTS_KEY = "recentUploadFingerprints";
+const MAX_RECENT = 5;
+
+function getRecentFingerprints(): Set<string> {
+  try {
+    const raw = localStorage.getItem(RECENT_FINGERPRINTS_KEY);
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+function addRecentFingerprint(fp: string) {
+  try {
+    const arr = Array.from(getRecentFingerprints());
+    const updated = [fp, ...arr.filter((x) => x !== fp)].slice(0, MAX_RECENT);
+    localStorage.setItem(RECENT_FINGERPRINTS_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+}
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 export function UploadPage() {
   const { setPage, justUploadedVideoId } = useApp();
   const upload = useUpload();
 
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [thumbFile, setThumbFile] = useState<File | null>(null);
   const [hasResumeState, setHasResumeState] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewDuration, setPreviewDuration] = useState<number | null>(null);
+  const [isDuplicate, setIsDuplicate] = useState(false);
 
   const videoInputRef = useRef<HTMLInputElement>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
+  const prevPreviewUrlRef = useRef<string | null>(null);
+
+  // Cleanup preview URL on unmount
+  useEffect(() => {
+    return () => {
+      if (prevPreviewUrlRef.current) {
+        URL.revokeObjectURL(prevPreviewUrlRef.current);
+      }
+    };
+  }, []);
 
   const videoSizeMB = videoFile ? videoFile.size / (1024 * 1024) : 0;
   const isFileTooLarge = videoSizeMB > MAX_BLOCK_MB;
@@ -42,13 +87,26 @@ export function UploadPage() {
 
   const handleVideoSelect = async (file: File | undefined) => {
     if (!file) return;
+    // Revoke previous preview URL
+    if (prevPreviewUrlRef.current) {
+      URL.revokeObjectURL(prevPreviewUrlRef.current);
+    }
+    const url = URL.createObjectURL(file);
+    prevPreviewUrlRef.current = url;
+    setPreviewUrl(url);
+    setPreviewDuration(null);
     setVideoFile(file);
     setHasResumeState(false);
+
+    // Duplicate detection
+    const fp = getFileFingerprint(file);
+    const recents = getRecentFingerprints();
+    setIsDuplicate(recents.has(fp));
+
     // Check IndexedDB for a matching interrupted upload
     const canResume = await upload.checkResume(file);
     if (canResume) {
       setHasResumeState(true);
-      // Pre-fill the title from the saved record
       if (upload.title) setTitle(upload.title);
     }
   };
@@ -75,20 +133,29 @@ export function UploadPage() {
     }
     if (isFileTooLarge) {
       toast.error(
-        "File exceeds 4 GB limit. Please compress or trim your video.",
+        "File exceeds 1 GB limit. Please compress or trim your video.",
       );
       return;
     }
+    // Record fingerprint on upload
+    const fp = getFileFingerprint(videoFile);
+    addRecentFingerprint(fp);
+    setIsDuplicate(false);
+
     upload.startUpload({
       title: title.trim(),
       videoFile,
       thumbnailFile: thumbFile,
+      description: description.trim() || undefined,
     });
   };
 
   const isUploading = upload.isActive;
   const showProgress = upload.status !== "idle";
   const uploadReady = upload.status === "ready" && !!justUploadedVideoId;
+
+  // Step indicator: 1 = no file, 2 = file selected, 3 = uploading/done
+  const currentStep = isUploading || showProgress ? 3 : videoFile ? 2 : 1;
 
   // Rich progress: "X.X / Y.Y MB · Chunk N/T"
   const mbDisplay =
@@ -160,7 +227,7 @@ export function UploadPage() {
                   Tap to select video
                 </p>
                 <p className="text-xs text-muted-foreground/60">
-                  MP4, MOV, AVI, WebM · Max 4 GB
+                  MP4, MOV, AVI, WebM · Max 1 GB
                 </p>
               </>
             )}
@@ -173,6 +240,70 @@ export function UploadPage() {
             onChange={(e) => handleVideoSelect(e.target.files?.[0])}
           />
         </div>
+
+        {/* Video preview block */}
+        <AnimatePresence>
+          {previewUrl && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="space-y-2"
+            >
+              <div className="rounded-xl overflow-hidden bg-black border border-border/30">
+                {/* biome-ignore lint/a11y/useMediaCaption: preview only */}
+                <video
+                  src={previewUrl}
+                  controls
+                  playsInline
+                  className="w-full aspect-video bg-black"
+                  onLoadedMetadata={(e) =>
+                    setPreviewDuration(e.currentTarget.duration)
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  {previewDuration !== null
+                    ? `Duration: ${formatDuration(previewDuration)}`
+                    : "Loading..."}
+                </span>
+                <button
+                  type="button"
+                  data-ocid="upload.secondary_button"
+                  onClick={() => videoInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-border/60 text-xs text-muted-foreground hover:border-orange/50 hover:text-orange transition-colors disabled:opacity-50"
+                >
+                  <RotateCcw size={11} />
+                  Replace Video
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Duplicate file warning */}
+        <AnimatePresence>
+          {isDuplicate && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              data-ocid="upload.toast"
+              className="rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 flex items-start gap-3"
+            >
+              <AlertTriangle
+                size={16}
+                className="text-yellow-400 mt-0.5 flex-shrink-0"
+              />
+              <p className="text-sm text-yellow-400">
+                This file appears to be a duplicate of a recently uploaded
+                video.
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* File too large error */}
         <AnimatePresence>
@@ -189,7 +320,7 @@ export function UploadPage() {
                 className="text-destructive mt-0.5 flex-shrink-0"
               />
               <p className="text-sm text-destructive">
-                File exceeds 4 GB limit. Please compress or trim your video
+                File exceeds 1 GB limit. Please compress or trim your video
                 before uploading.
               </p>
             </motion.div>
@@ -203,7 +334,6 @@ export function UploadPage() {
               initial={{ opacity: 0, y: -6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
-              data-ocid="upload.toast"
               className="rounded-xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 flex items-start gap-3"
             >
               <AlertTriangle
@@ -244,6 +374,68 @@ export function UploadPage() {
           )}
         </AnimatePresence>
 
+        {/* Step indicator */}
+        {videoFile && (
+          <div className="flex items-center gap-1 text-xs">
+            <span
+              className={`flex items-center gap-1 ${
+                currentStep >= 1
+                  ? "text-orange font-semibold"
+                  : "text-muted-foreground"
+              }`}
+            >
+              <span
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                  currentStep >= 1
+                    ? "bg-orange text-white"
+                    : "bg-border text-muted-foreground"
+                }`}
+              >
+                ①
+              </span>
+              Select
+            </span>
+            <span className="text-muted-foreground/40 mx-1">→</span>
+            <span
+              className={`flex items-center gap-1 ${
+                currentStep >= 2
+                  ? "text-orange font-semibold"
+                  : "text-muted-foreground"
+              }`}
+            >
+              <span
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                  currentStep >= 2
+                    ? "bg-orange text-white"
+                    : "bg-border text-muted-foreground"
+                }`}
+              >
+                ②
+              </span>
+              Preview &amp; Details
+            </span>
+            <span className="text-muted-foreground/40 mx-1">→</span>
+            <span
+              className={`flex items-center gap-1 ${
+                currentStep >= 3
+                  ? "text-orange font-semibold"
+                  : "text-muted-foreground"
+              }`}
+            >
+              <span
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                  currentStep >= 3
+                    ? "bg-orange text-white"
+                    : "bg-border text-muted-foreground"
+                }`}
+              >
+                ③
+              </span>
+              Upload
+            </span>
+          </div>
+        )}
+
         {/* Title input */}
         <div>
           <Label
@@ -259,8 +451,35 @@ export function UploadPage() {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Enter video title..."
             disabled={isUploading}
-            className="bg-surface2 border-border/60 text-foreground"
+            className="bg-[#1A1A1A] border-[#333] text-white placeholder:text-[#AAAAAA] focus:ring-1 focus:ring-orange/60 focus:border-orange/60"
           />
+        </div>
+
+        {/* Description textarea */}
+        <div>
+          <Label
+            htmlFor="video-description"
+            className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block"
+          >
+            Description
+            <span className="ml-1.5 text-[10px] normal-case tracking-normal font-normal px-1.5 py-0.5 rounded-full bg-surface2 text-muted-foreground/60">
+              optional
+            </span>
+          </Label>
+          <textarea
+            id="video-description"
+            data-ocid="upload.textarea"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Tell viewers about your video..."
+            disabled={isUploading}
+            maxLength={2000}
+            rows={4}
+            className="w-full bg-[#1A1A1A] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-[#AAAAAA] focus:outline-none focus:ring-1 focus:ring-orange/60 resize-none min-h-[100px] disabled:opacity-50"
+          />
+          <p className="text-right text-[11px] text-muted-foreground/50 mt-1">
+            {description.length}/2000
+          </p>
         </div>
 
         {/* Thumbnail picker */}
@@ -289,6 +508,9 @@ export function UploadPage() {
           />
         </div>
 
+        {/* Upload limits panel — shown before the upload button */}
+        <UploadLimitsPanel />
+
         {/* Captions banner (before upload) */}
         {!uploadReady && (
           <motion.div
@@ -314,6 +536,36 @@ export function UploadPage() {
               </p>
             </div>
           </motion.div>
+        )}
+
+        {/* Upload button */}
+        {upload.status !== "ready" && (
+          <Button
+            type="button"
+            data-ocid="upload.submit_button"
+            onClick={handleUpload}
+            disabled={
+              isUploading || !videoFile || !title.trim() || isFileTooLarge
+            }
+            className="w-full bg-orange hover:bg-orange/90 text-white border-none font-semibold"
+          >
+            {isUploading ? (
+              <>
+                <RefreshCw size={16} className="animate-spin mr-2" />
+                {upload.isResuming ? "Resuming..." : "Uploading..."}
+              </>
+            ) : hasResumeState ? (
+              <>
+                <RotateCcw size={16} className="mr-2" />
+                Resume Upload
+              </>
+            ) : (
+              <>
+                <Upload size={16} className="mr-2" />
+                Start Upload
+              </>
+            )}
+          </Button>
         )}
 
         {/* Upload progress panel */}
@@ -412,6 +664,35 @@ export function UploadPage() {
                 </>
               )}
 
+              {/* Processing quality levels panel */}
+              {upload.status === "ready" && (
+                <div className="rounded-lg bg-[#1a1a1a] border border-[#333] p-3 space-y-2">
+                  <p className="text-xs font-semibold text-white">
+                    Your video is live! Processing quality levels...
+                  </p>
+                  <div className="flex gap-2">
+                    {(["480p", "720p", "1080p"] as const).map((q) => {
+                      const stages = ["", "480p", "720p", "1080p"];
+                      const stageIdx = stages.indexOf(upload.processingStage);
+                      const qIdx = stages.indexOf(q);
+                      const isActive = stageIdx >= qIdx && stageIdx > 0;
+                      return (
+                        <span
+                          key={q}
+                          className={
+                            isActive
+                              ? "text-[11px] font-bold px-2 py-0.5 rounded bg-orange text-white transition-all duration-500"
+                              : "text-[11px] font-bold px-2 py-0.5 rounded bg-[#333] text-muted-foreground transition-all duration-500"
+                          }
+                        >
+                          {q}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Retry button */}
               {upload.status === "error" && (
                 <Button
@@ -428,36 +709,6 @@ export function UploadPage() {
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Upload button */}
-        {upload.status !== "ready" && (
-          <Button
-            type="button"
-            data-ocid="upload.submit_button"
-            onClick={handleUpload}
-            disabled={
-              isUploading || !videoFile || !title.trim() || isFileTooLarge
-            }
-            className="w-full bg-orange hover:bg-orange/90 text-white border-none font-semibold"
-          >
-            {isUploading ? (
-              <>
-                <RefreshCw size={16} className="animate-spin mr-2" />
-                {upload.isResuming ? "Resuming..." : "Uploading..."}
-              </>
-            ) : hasResumeState ? (
-              <>
-                <RotateCcw size={16} className="mr-2" />
-                Resume Upload
-              </>
-            ) : (
-              <>
-                <Upload size={16} className="mr-2" />
-                Upload Video
-              </>
-            )}
-          </Button>
-        )}
 
         {/* Captions section — after upload */}
         <AnimatePresence>

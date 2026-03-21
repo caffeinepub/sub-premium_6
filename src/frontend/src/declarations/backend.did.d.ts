@@ -15,8 +15,27 @@ export interface CaptionTrack {
   'captionLabel' : string,
   'language' : string,
 }
+export interface CreatorStats {
+  'dailyCount' : bigint,
+  'tier' : CreatorTier,
+  'lastUploadTime' : Time,
+  'dailyLimit' : bigint,
+  'totalUploads' : bigint,
+}
+export type CreatorTier = { 'verified' : null } |
+  { 'active' : null } |
+  { 'new_user' : null };
 export type ExternalBlob = Uint8Array;
 export type Time = bigint;
+export interface UploadPermission {
+  'dailyCount' : bigint,
+  'cooldownRemaining' : bigint,
+  'allowed' : boolean,
+  'dailyLimit' : bigint,
+  'storageUsedBytes' : bigint,
+  'tempBlockRemaining' : bigint,
+  'reason' : string,
+}
 export interface UserProfile {
   'bio' : string,
   'username' : string,
@@ -31,12 +50,14 @@ export interface Video {
   'id' : string,
   'status' : string,
   'title' : string,
-  'videoBlobId' : ExternalBlob,
   'views' : bigint,
-  'thumbnailBlobId' : ExternalBlob,
   'creatorId' : string,
   'captionVtt' : string,
+  'description' : string,
+  'videoBlob' : ExternalBlob,
   'creatorName' : string,
+  'qualityLevel' : string,
+  'thumbnailBlob' : ExternalBlob,
   'uploadTime' : Time,
 }
 export interface VideoView { 'timestamp' : Time, 'videoId' : string }
@@ -68,17 +89,23 @@ export interface _SERVICE {
   >,
   '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'addStorageUsage' : ActorMethod<[bigint], undefined>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'checkUploadPermission' : ActorMethod<[], UploadPermission>,
   'deleteVideo' : ActorMethod<[string], undefined>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getCaptionTracks' : ActorMethod<[string], Array<CaptionTrack>>,
+  'getCreatorStats' : ActorMethod<[], CreatorStats>,
+  'getCreatorTier' : ActorMethod<[Principal], CreatorTier>,
   'getSettings' : ActorMethod<[], [] | [UserSettings]>,
+  'getUploadStats' : ActorMethod<[], UploadPermission>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'getVideoCaption' : ActorMethod<[string], string>,
   'getWatchHistory' : ActorMethod<[], Array<VideoView>>,
   'incrementViews' : ActorMethod<[string], undefined>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
+  'listAllVideos' : ActorMethod<[], Array<Video>>,
   'listReadyVideos' : ActorMethod<[], Array<Video>>,
   'removeCaptionTrack' : ActorMethod<[string, string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
@@ -86,12 +113,14 @@ export interface _SERVICE {
   'setCaptionTrack' : ActorMethod<[string, string, string, string], undefined>,
   'updateSettings' : ActorMethod<[UserSettings], undefined>,
   'updateVideoCaption' : ActorMethod<[string, string], undefined>,
+  'updateVideoQuality' : ActorMethod<[string, string], undefined>,
   'updateVideoStatus' : ActorMethod<[string, string], undefined>,
   'updateWatchHistory' : ActorMethod<[string], undefined>,
   'uploadVideo' : ActorMethod<
-    [string, string, ExternalBlob, ExternalBlob],
+    [string, string, ExternalBlob, ExternalBlob, string],
     string
   >,
+  'verifyCreator' : ActorMethod<[Principal], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

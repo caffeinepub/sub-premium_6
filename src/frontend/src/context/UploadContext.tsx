@@ -28,8 +28,8 @@ export type UploadStatus =
 
 /** 500 MB — warn user, upload still proceeds */
 const MAX_WARN_SIZE = 500 * 1024 * 1024;
-/** 4 GB — hard block, browser ArrayBuffer limit */
-const MAX_BLOCK_SIZE = 4 * 1024 * 1024 * 1024;
+/** 1 GB — hard block */
+const MAX_BLOCK_SIZE = 1 * 1024 * 1024 * 1024;
 /** StorageClient internal chunk size (1 MB) */
 const CHUNK_SIZE_BYTES = 1024 * 1024;
 
@@ -53,6 +53,7 @@ export interface UploadParams {
   title: string;
   videoFile: File;
   thumbnailFile: File | null;
+  description?: string;
 }
 
 interface UploadContextValue extends UploadState {
@@ -62,6 +63,7 @@ interface UploadContextValue extends UploadState {
   isActive: boolean;
   /** Check if a newly selected file has a saved interrupted state */
   checkResume: (file: File) => Promise<boolean>;
+  processingStage: "" | "480p" | "720p" | "1080p";
 }
 
 const UploadContext = createContext<UploadContextValue | undefined>(undefined);
@@ -120,6 +122,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const [uploadSpeed, setUploadSpeed] = useState("");
   const [timeRemaining, setTimeRemaining] = useState("");
   const [isResuming, setIsResuming] = useState(false);
+  const [processingStage, setProcessingStage] = useState<
+    "" | "480p" | "720p" | "1080p"
+  >("");
 
   const paramsRef = useRef<UploadParams | null>(null);
   const isRunningRef = useRef(false);
@@ -184,6 +189,29 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // ── Upload permission check ───────────────────────────────────────
+      try {
+        const perm = (await (actor as any).checkUploadPermission()) as {
+          allowed: boolean;
+          reason: string;
+          cooldownRemaining: bigint;
+        };
+        if (!perm.allowed) {
+          setStatus("error");
+          setErrorMsg(perm.reason || "Upload not allowed at this time.");
+          return;
+        }
+        if (perm.cooldownRemaining > 0n) {
+          setStatus("error");
+          setErrorMsg(
+            `Please wait ${Number(perm.cooldownRemaining)} seconds before uploading again.`,
+          );
+          return;
+        }
+      } catch {
+        // If the method doesn't exist yet, proceed normally
+      }
+
       // ── File size checks ──────────────────────────────────────────────
       const sizeBytes = params.videoFile.size;
       const sizeMB = sizeBytes / (1024 * 1024);
@@ -193,7 +221,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       if (sizeBytes > MAX_BLOCK_SIZE) {
         setStatus("error");
         setErrorMsg(
-          "File exceeds 4 GB limit. Please compress or trim your video.",
+          "File exceeds 1 GB limit. Please compress or trim your video.",
         );
         return;
       }
@@ -325,7 +353,13 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         }
 
         // ── Upload ───────────────────────────────────────────────────
-        await actor.uploadVideo(id, params.title, videoBlob, thumbBlob);
+        await actor.uploadVideo(
+          id,
+          params.title,
+          videoBlob,
+          thumbBlob,
+          params.description ?? "",
+        );
 
         setProgress(97);
         setUploadSpeed("");
@@ -339,12 +373,50 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         await actor.updateVideoStatus(id, "ready");
         setStatus("ready");
 
+        // Background quality simulation (non-blocking)
+        const bgId = id;
+        const bgActor = actor;
+        setTimeout(async () => {
+          try {
+            setProcessingStage("480p");
+            await bgActor.updateVideoQuality(bgId, "480p");
+            setTimeout(async () => {
+              try {
+                setProcessingStage("720p");
+                await bgActor.updateVideoQuality(bgId, "720p");
+                setTimeout(async () => {
+                  try {
+                    setProcessingStage("1080p");
+                    await bgActor.updateVideoQuality(bgId, "1080p");
+                  } catch {
+                    /* non-critical */
+                  }
+                }, 4000);
+              } catch {
+                /* non-critical */
+              }
+            }, 3000);
+          } catch {
+            /* non-critical */
+          }
+        }, 2000);
+
         // Clear persisted state on success
         clearUploadRecord(fp);
         videoIdRef.current = null;
         fingerprintRef.current = null;
 
+        // Track storage usage (fire and forget)
+        try {
+          await (actor as any).addStorageUsage(BigInt(params.videoFile.size));
+        } catch {
+          // Non-critical
+        }
+
+        // Invalidate both videos and uploadStats queries
         await qc.invalidateQueries({ queryKey: ["videos"] });
+        qc.invalidateQueries({ queryKey: ["uploadStats"] });
+
         setJustUploadedVideoId(id);
         setPage("home");
       } catch (err: unknown) {
@@ -461,6 +533,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         uploadSpeed,
         timeRemaining,
         isResuming,
+        processingStage,
         startUpload,
         retry,
         reset,

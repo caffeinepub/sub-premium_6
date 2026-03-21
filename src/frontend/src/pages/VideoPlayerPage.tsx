@@ -1,16 +1,19 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Bookmark,
   Captions,
   Check,
+  ChevronDown,
+  Clock,
   Download,
   Eye,
   MessageCircle,
+  Pause,
+  Play,
   Plus,
   SendHorizontal,
   Share2,
@@ -55,6 +58,15 @@ function formatViews(views: bigint | number): string {
   return `${n}`;
 }
 
+function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0)
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 function timeAgo(uploadTime: bigint): string {
   const ms = Number(uploadTime) / 1_000_000;
   const diff = Date.now() - ms;
@@ -67,6 +79,148 @@ function timeAgo(uploadTime: bigint): string {
   return "Today";
 }
 
+// ---------------------------------------------------------------------------
+// VideoProgressBar
+// ---------------------------------------------------------------------------
+interface VideoProgressBarProps {
+  currentTime: number;
+  duration: number;
+  isDraggingRef: React.MutableRefObject<boolean>;
+  onSeek: (time: number) => void;
+  onDragTime: (time: number) => void;
+  isPlaying: boolean;
+  onPlayPause: () => void;
+}
+
+function VideoProgressBar({
+  currentTime,
+  duration,
+  isDraggingRef,
+  onSeek,
+  onDragTime,
+  isPlaying,
+  onPlayPause,
+}: VideoProgressBarProps) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [dragPct, setDragPct] = useState<number | null>(null);
+
+  const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const displayPct = dragPct !== null ? dragPct : pct;
+
+  function getPctFromPointer(e: PointerEvent | React.PointerEvent): number {
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    const raw = (e.clientX - rect.left) / rect.width;
+    return Math.max(0, Math.min(1, raw)) * 100;
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    isDraggingRef.current = true;
+    const p = getPctFromPointer(e);
+    setDragPct(p);
+    onDragTime((p / 100) * duration);
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!isDraggingRef.current) return;
+    const p = getPctFromPointer(e);
+    setDragPct(p);
+    onDragTime((p / 100) * duration);
+  }
+
+  function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!isDraggingRef.current) return;
+    const p = getPctFromPointer(e);
+    isDraggingRef.current = false;
+    setDragPct(null);
+    onSeek((p / 100) * duration);
+  }
+
+  return (
+    <div className="flex flex-col gap-1 bg-black px-3 py-2">
+      {/* Track row */}
+      <div
+        ref={trackRef}
+        data-ocid="player.canvas_target"
+        role="slider"
+        aria-label="Video progress"
+        aria-valuenow={Math.round(displayPct)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        tabIndex={0}
+        className="relative flex items-center cursor-pointer select-none"
+        style={{ height: "20px" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
+        {/* Bar background + fill */}
+        <div
+          className="absolute inset-x-0 rounded-full"
+          style={{
+            height: "4px",
+            top: "50%",
+            transform: "translateY(-50%)",
+            background: `linear-gradient(to right, #FF0000 ${displayPct}%, rgba(255,255,255,0.7) ${displayPct}%)`,
+          }}
+        />
+        {/* Scrubber dot */}
+        <div
+          className="absolute rounded-full pointer-events-none"
+          style={{
+            width: "14px",
+            height: "14px",
+            background: "#FF0000",
+            left: `calc(${displayPct}% - 7px)`,
+            top: "50%",
+            transform: "translateY(-50%)",
+            boxShadow: "0 0 4px rgba(0,0,0,0.8), 0 0 8px rgba(255,0,0,0.4)",
+          }}
+        />
+      </div>
+
+      {/* Time labels + play/pause */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          data-ocid="player.toggle"
+          onClick={onPlayPause}
+          className="text-white flex-shrink-0 p-0 leading-none"
+          aria-label={isPlaying ? "Pause" : "Play"}
+        >
+          {isPlaying ? (
+            <Pause size={16} fill="white" />
+          ) : (
+            <Play size={16} fill="white" />
+          )}
+        </button>
+        <span
+          className="text-white text-xs tabular-nums flex-shrink-0"
+          style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+          {duration > 0
+            ? formatDuration(
+                dragPct !== null ? (dragPct / 100) * duration : currentTime,
+              )
+            : "0:00"}
+        </span>
+        <div className="flex-1" />
+        <span
+          className="text-white text-xs tabular-nums flex-shrink-0"
+          style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+          {duration > 0 ? formatDuration(duration) : "0:00"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// VideoPlayerPage
+// ---------------------------------------------------------------------------
 export function VideoPlayerPage() {
   const {
     selectedVideo,
@@ -87,6 +241,7 @@ export function VideoPlayerPage() {
   const watchStartRef = useRef<number>(0);
   const lastSaveRef = useRef<number>(0);
   const captionBlobUrlRef = useRef<string | null>(null);
+  const isDraggingRef = useRef(false);
 
   const [liked, setLiked] = useState(false);
   const [disliked, setDisliked] = useState(false);
@@ -102,6 +257,9 @@ export function VideoPlayerPage() {
   const [playlists, setPlaylists] = useState(getPlaylists());
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const [autoplayCountdown, setAutoplayCountdown] = useState<number | null>(
     null,
@@ -109,10 +267,12 @@ export function VideoPlayerPage() {
   const [nextVideo, setNextVideo] = useState<Video | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // CC state
+  // CC state — default false; auto-enables when tracks load if no preference stored
   const [ccEnabled, setCcEnabled] = useState(() => {
     try {
-      return localStorage.getItem("sp_cc") === "1";
+      const stored = localStorage.getItem("sp_cc");
+      if (stored !== null) return stored === "1";
+      return false;
     } catch {
       return false;
     }
@@ -134,24 +294,35 @@ export function VideoPlayerPage() {
   const isCreator =
     identity?.getPrincipal().toString() === selectedVideo?.creatorId;
 
+  // Auto-enable CC when tracks load and user has no stored preference
+  useEffect(() => {
+    if (captionTracks.length > 0) {
+      try {
+        if (localStorage.getItem("sp_cc") === null) {
+          setCcEnabled(true);
+        }
+      } catch {}
+    }
+  }, [captionTracks.length]);
+
   // Active track: match selectedLang or fallback to first
   const activeTrack =
     captionTracks.find((t) => t.language === selectedLang) ??
     captionTracks[0] ??
     null;
 
-  // Build blob URL for active track
+  // Build blob URL for active track — always build when track has VTT, not gated on ccEnabled
   useEffect(() => {
     if (captionBlobUrlRef.current) {
       URL.revokeObjectURL(captionBlobUrlRef.current);
       captionBlobUrlRef.current = null;
     }
-    if (ccEnabled && activeTrack?.vtt) {
+    if (activeTrack?.vtt) {
       captionBlobUrlRef.current = URL.createObjectURL(
         new Blob([activeTrack.vtt], { type: "text/vtt" }),
       );
     }
-  }, [ccEnabled, activeTrack]);
+  }, [activeTrack]);
 
   // Cleanup blob URL on unmount
   useEffect(() => {
@@ -246,6 +417,8 @@ export function VideoPlayerPage() {
     setAutoplayCountdown(null);
     setNextVideo(null);
     setSubscribed(isSubscribed(selectedVideo.creatorId));
+    setCurrentTime(0);
+    setIsPlaying(false);
     if (countdownRef.current) clearInterval(countdownRef.current);
     window.scrollTo({ top: 0 });
     setMiniPlayerActive(false);
@@ -307,7 +480,7 @@ export function VideoPlayerPage() {
     return null;
   }
 
-  const videoUrl = selectedVideo.videoBlobId?.getDirectURL?.();
+  const videoUrl = selectedVideo.videoBlob?.getDirectURL?.();
 
   const otherVideos = (allVideos ?? []).filter(
     (v: Video) => v.id !== selectedVideo.id,
@@ -321,6 +494,7 @@ export function VideoPlayerPage() {
     .filter((v): v is Video => !!v);
 
   const handleVideoEnded = () => {
+    setIsPlaying(false);
     if (selectedVideo) trackBehavior(selectedVideo.id, "watchTime", 1.0);
     if (recommended.length > 0) {
       setNextVideo(recommended[0]);
@@ -331,12 +505,33 @@ export function VideoPlayerPage() {
   const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const vid = e.currentTarget;
     if (!selectedVideo || !vid.duration) return;
+    // Update progress bar only when not dragging
+    if (!isDraggingRef.current) {
+      setCurrentTime(vid.currentTime);
+    }
     const now = Date.now();
     if (now - lastSaveRef.current >= 2000) {
       lastSaveRef.current = now;
       saveWatchProgress(selectedVideo.id, vid.currentTime, vid.duration);
       const completionRate = vid.currentTime / vid.duration;
       trackBehavior(selectedVideo.id, "watchTime", completionRate);
+    }
+  };
+
+  const handleSeek = (time: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  };
+
+  const handlePlayPause = () => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    if (vid.paused) {
+      vid.play().catch(() => {});
+    } else {
+      vid.pause();
     }
   };
 
@@ -442,7 +637,7 @@ export function VideoPlayerPage() {
     toast.success(`Added to "${pl.name}"`);
   };
 
-  const nextThumb = nextVideo?.thumbnailBlobId?.getDirectURL?.();
+  const nextThumb = nextVideo?.thumbnailBlob?.getDirectURL?.();
 
   return (
     <motion.div
@@ -465,11 +660,6 @@ export function VideoPlayerPage() {
         <h2 className="text-sm font-semibold truncate flex-1 text-foreground">
           {selectedVideo.title}
         </h2>
-        {hasTracks && (
-          <span className="flex-shrink-0 px-2 py-0.5 rounded-full bg-orange text-white text-[10px] font-bold tracking-wide">
-            CC
-          </span>
-        )}
       </div>
 
       {/* Video Player (true 16:9) */}
@@ -481,18 +671,26 @@ export function VideoPlayerPage() {
               ref={videoRef}
               data-ocid="player.canvas_target"
               src={videoUrl}
-              controls={!autoplayCountdown}
               autoPlay
               playsInline
               className="w-full h-full object-contain"
               onEnded={handleVideoEnded}
               onTimeUpdate={handleTimeUpdate}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onLoadedMetadata={(e) => {
+                const d = e.currentTarget.duration;
+                if (d && Number.isFinite(d)) {
+                  setVideoDuration(d);
+                }
+              }}
             >
-              {ccEnabled && captionBlobUrlRef.current && (
+              {activeTrack?.vtt && captionBlobUrlRef.current && (
                 <track
+                  key={captionBlobUrlRef.current}
                   kind="subtitles"
                   src={captionBlobUrlRef.current}
-                  default
+                  default={ccEnabled}
                   label={activeTrack?.captionLabel ?? "Captions"}
                   srcLang={activeTrack?.language ?? "en"}
                 />
@@ -569,7 +767,85 @@ export function VideoPlayerPage() {
             )}
           </AnimatePresence>
         </div>
+
+        {/* Custom progress bar — placed directly below the aspect-video div */}
+        {videoUrl && (
+          <VideoProgressBar
+            currentTime={currentTime}
+            duration={videoDuration ?? 0}
+            isDraggingRef={isDraggingRef}
+            onSeek={handleSeek}
+            onDragTime={(t) => setCurrentTime(t)}
+            isPlaying={isPlaying}
+            onPlayPause={handlePlayPause}
+          />
+        )}
       </div>
+
+      {/* CC Controls Bar — below video, only when tracks exist */}
+      {hasTracks && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-black/40 border-b border-white/5">
+          <button
+            type="button"
+            data-ocid="player.toggle"
+            onClick={toggleCc}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
+              ccEnabled
+                ? "bg-orange text-white border-orange"
+                : "bg-transparent text-muted-foreground border-border/50 hover:border-orange/40"
+            }`}
+          >
+            <Captions size={13} />
+            CC
+          </button>
+          {captionTracks.length > 1 && (
+            <div className="relative">
+              <button
+                type="button"
+                data-ocid="player.select"
+                onClick={() => setLangMenuOpen(!langMenuOpen)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border border-border/50 hover:border-orange/40 text-muted-foreground"
+              >
+                {selectedLang.toUpperCase()}
+                <ChevronDown size={10} />
+              </button>
+              <AnimatePresence>
+                {langMenuOpen && (
+                  <motion.div
+                    data-ocid="player.dropdown_menu"
+                    initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -4, scale: 0.96 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute top-full left-0 mt-1 z-50 bg-surface2 border border-border/60 rounded-xl shadow-lg overflow-hidden min-w-[120px]"
+                  >
+                    {captionTracks.map((t) => (
+                      <button
+                        key={t.language}
+                        type="button"
+                        onClick={() => handleLangSelect(t.language)}
+                        className={`w-full text-left px-3 py-2 text-xs hover:bg-accent flex items-center justify-between ${
+                          selectedLang === t.language
+                            ? "text-orange font-bold"
+                            : "text-foreground"
+                        }`}
+                      >
+                        {t.captionLabel || t.language}
+                        {selectedLang === t.language && (
+                          <Check size={11} className="text-orange" />
+                        )}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+          <span className="ml-auto text-[10px] text-muted-foreground/50">
+            {ccEnabled ? "Captions ON" : "Captions OFF"}
+          </span>
+        </div>
+      )}
 
       {isSticky && (
         <div className="bg-zinc-900/80 border-b border-white/5 px-4 py-2 flex items-center justify-between">
@@ -605,6 +881,15 @@ export function VideoPlayerPage() {
             <span className="text-xs text-muted-foreground">
               {timeAgo(selectedVideo.uploadTime)}
             </span>
+            {videoDuration !== null && (
+              <>
+                <span className="text-muted-foreground/40 text-xs">•</span>
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Clock size={11} />
+                  {formatDuration(videoDuration)}
+                </span>
+              </>
+            )}
           </div>
 
           {/* Subscribe button */}
@@ -728,69 +1013,6 @@ export function VideoPlayerPage() {
             <Download size={15} />
             <span>Download</span>
           </button>
-
-          {/* CC toggle — only shown if tracks exist */}
-          {hasTracks && (
-            <button
-              type="button"
-              data-ocid="player.toggle"
-              onClick={toggleCc}
-              style={{ minWidth: "44px", minHeight: "44px" }}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors flex-shrink-0 ${
-                ccEnabled
-                  ? "bg-orange text-white"
-                  : "bg-surface2 text-foreground hover:bg-surface2/80"
-              }`}
-            >
-              <Captions size={15} />
-              <span>CC</span>
-            </button>
-          )}
-
-          {/* Language selector — shown when CC on and multiple tracks */}
-          {hasTracks && captionTracks.length > 1 && (
-            <div className="relative flex-shrink-0">
-              <button
-                type="button"
-                data-ocid="player.select"
-                onClick={() => setLangMenuOpen((p) => !p)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-xs font-medium transition-colors border border-border/40"
-              >
-                {activeTrack?.captionLabel ?? "Lang"}
-                <span className="text-muted-foreground">▾</span>
-              </button>
-              <AnimatePresence>
-                {langMenuOpen && (
-                  <motion.div
-                    data-ocid="player.dropdown_menu"
-                    initial={{ opacity: 0, y: -4, scale: 0.96 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -4, scale: 0.96 }}
-                    transition={{ duration: 0.12 }}
-                    className="absolute bottom-full mb-2 right-0 min-w-[140px] bg-popover border border-border/60 rounded-xl shadow-xl overflow-hidden z-50"
-                  >
-                    {captionTracks.map((track) => (
-                      <button
-                        key={track.language}
-                        type="button"
-                        onClick={() => handleLangSelect(track.language)}
-                        className={`w-full text-left px-3 py-2.5 text-sm transition-colors flex items-center justify-between ${
-                          track.language === selectedLang
-                            ? "bg-orange/10 text-orange font-semibold"
-                            : "hover:bg-surface2 text-foreground"
-                        }`}
-                      >
-                        {track.captionLabel}
-                        {track.language === selectedLang && (
-                          <Check size={13} className="text-orange" />
-                        )}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
         </div>
 
         <div className="border-t border-border/40" />
@@ -803,8 +1025,6 @@ export function VideoPlayerPage() {
               {comments.length} Comment{comments.length !== 1 ? "s" : ""}
             </span>
           </div>
-
-          {/* Comment list — input is in sticky bar at bottom */}
 
           <div className="space-y-3">
             {comments.map((c, i) => (

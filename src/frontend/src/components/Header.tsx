@@ -230,7 +230,7 @@ export function Header({
             className="absolute left-0 right-0 top-full mt-1 bg-surface1 border border-border/60 rounded-xl shadow-lg z-50 overflow-hidden"
           >
             {suggestions.map((video) => {
-              const thumb = video.thumbnailBlobId?.getDirectURL?.();
+              const thumb = video.thumbnailBlob?.getDirectURL?.();
               return (
                 <button
                   key={video.id}

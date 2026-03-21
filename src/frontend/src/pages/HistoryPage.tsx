@@ -93,9 +93,9 @@ export function HistoryPage() {
               >
                 {/* Thumb */}
                 <div className="relative w-28 h-16 rounded-lg overflow-hidden bg-surface2 flex-shrink-0">
-                  {video?.thumbnailBlobId?.getDirectURL?.() ? (
+                  {video?.thumbnailBlob?.getDirectURL?.() ? (
                     <img
-                      src={video.thumbnailBlobId.getDirectURL()}
+                      src={video.thumbnailBlob.getDirectURL()}
                       alt={video?.title}
                       className="w-full h-full object-cover"
                     />

@@ -22,8 +22,8 @@ export function FloatingMiniPlayer() {
     py: number;
   } | null>(null);
 
-  const videoUrl = miniPlayerVideo?.videoBlobId?.getDirectURL?.();
-  const thumbnailUrl = miniPlayerVideo?.thumbnailBlobId?.getDirectURL?.();
+  const videoUrl = miniPlayerVideo?.videoBlob?.getDirectURL?.();
+  const thumbnailUrl = miniPlayerVideo?.thumbnailBlob?.getDirectURL?.();
 
   // Auto-play when activated
   useEffect(() => {

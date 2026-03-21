@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Clock, Eye, MoreVertical } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { Video } from "../backend";
 
 interface VideoCardProps {
@@ -32,8 +33,64 @@ function timeAgo(uploadTime: bigint): string {
   return "Just now";
 }
 
+function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function useDuration(url: string | undefined): number | null {
+  const [duration, setDuration] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!url) return;
+    const videoEl = document.createElement("video");
+    videoEl.preload = "metadata";
+    videoEl.muted = true;
+
+    const onLoaded = () => {
+      const d = videoEl.duration;
+      if (d && Number.isFinite(d)) {
+        setDuration(d);
+      } else {
+        setDuration(null);
+      }
+      cleanup();
+    };
+
+    const onError = () => {
+      setDuration(null);
+      cleanup();
+    };
+
+    const cleanup = () => {
+      videoEl.removeEventListener("loadedmetadata", onLoaded);
+      videoEl.removeEventListener("error", onError);
+      videoEl.src = "";
+      videoEl.load();
+    };
+
+    videoEl.addEventListener("loadedmetadata", onLoaded);
+    videoEl.addEventListener("error", onError);
+    videoEl.src = url;
+
+    return cleanup;
+  }, [url]);
+
+  return duration;
+}
+
 export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
-  const thumbUrl = video.thumbnailBlobId?.getDirectURL?.();
+  const thumbUrl = video.thumbnailBlob?.getDirectURL?.();
+  const videoUrl = video.videoBlob?.getDirectURL?.();
+  const isProcessing =
+    video.status === "processing" || video.status === "uploading";
+  const qualityLevel = video.qualityLevel || "";
+  const duration = useDuration(videoUrl);
 
   return (
     <div
@@ -67,9 +124,25 @@ export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
             </svg>
           </div>
         )}
-        <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
-          --:--
-        </div>
+        {duration !== null && (
+          <div className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
+            {formatDuration(duration)}
+          </div>
+        )}
+        {/* Processing overlay badge */}
+        {isProcessing && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <span className="bg-black/80 text-white text-[10px] px-2 py-1 rounded-full font-medium animate-pulse">
+              Processing...
+            </span>
+          </div>
+        )}
+        {/* Quality chip */}
+        {!isProcessing && qualityLevel && (
+          <div className="absolute bottom-1 left-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono font-bold">
+            {qualityLevel}
+          </div>
+        )}
         {/* Progress bar */}
         {progress !== undefined && progress > 0 && (
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">

@@ -16,8 +16,10 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  BadgeCheck,
   Bookmark,
   Camera,
   Link,
@@ -26,6 +28,7 @@ import {
   LogIn,
   Plus,
   Save,
+  ShieldCheck,
   Trash2,
   X,
 } from "lucide-react";
@@ -33,6 +36,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
+import { CreatorTier } from "../backend";
 import type { Video } from "../backend";
 import { useApp } from "../context/AppContext";
 import { useActor } from "../hooks/useActor";
@@ -81,6 +85,20 @@ export function MenuPage() {
       setAvatarUrl(profile.avatarBlobId || "");
     }
   }, [profile]);
+
+  const { data: creatorStats } = useQuery({
+    queryKey: ["creatorStats"],
+    queryFn: async () => {
+      if (!actor) return null;
+      try {
+        return await actor.getCreatorStats();
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!actor && !!identity,
+    staleTime: 60_000,
+  });
 
   const myVideos = allVideos.filter(
     (v) => v.creatorId === identity?.getPrincipal().toString(),
@@ -268,9 +286,9 @@ export function MenuPage() {
                                     className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
                                   >
                                     <div className="w-14 h-9 rounded bg-surface2 flex-shrink-0 overflow-hidden">
-                                      {video.thumbnailBlobId?.getDirectURL?.() ? (
+                                      {video.thumbnailBlob?.getDirectURL?.() ? (
                                         <img
-                                          src={video.thumbnailBlobId.getDirectURL()}
+                                          src={video.thumbnailBlob.getDirectURL()}
                                           alt=""
                                           className="w-full h-full object-cover"
                                         />
@@ -388,6 +406,26 @@ export function MenuPage() {
                   <p className="font-bold">{displayName || "Your Name"}</p>
                   <p className="text-sm text-muted-foreground">
                     @{username || "username"}
+                  </p>
+                  {creatorStats &&
+                    creatorStats.tier === CreatorTier.verified && (
+                      <div className="flex items-center justify-center gap-1 mt-1">
+                        <BadgeCheck size={13} className="text-blue-400" />
+                        <span className="text-[11px] font-semibold text-blue-400">
+                          Verified Creator
+                        </span>
+                      </div>
+                    )}
+                  {creatorStats && creatorStats.tier === CreatorTier.active && (
+                    <div className="flex items-center justify-center gap-1 mt-1">
+                      <ShieldCheck size={13} className="text-orange" />
+                      <span className="text-[11px] font-semibold text-orange">
+                        Active Creator
+                      </span>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                    Unlimited uploads
                   </p>
                 </div>
               )}
@@ -544,9 +582,9 @@ export function MenuPage() {
                         onClick={() => handleVideoClick(video)}
                         aria-label={`Play ${video.title}`}
                       >
-                        {video.thumbnailBlobId?.getDirectURL?.() ? (
+                        {video.thumbnailBlob?.getDirectURL?.() ? (
                           <img
-                            src={video.thumbnailBlobId.getDirectURL()}
+                            src={video.thumbnailBlob.getDirectURL()}
                             alt={video.title}
                             className="w-full h-full object-cover"
                           />

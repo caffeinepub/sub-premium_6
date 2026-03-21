@@ -18,7 +18,7 @@ export function useListVideos(searchTerm?: string) {
       if (searchTerm?.trim()) {
         return actor.searchVideos(searchTerm.trim());
       }
-      return actor.listReadyVideos();
+      return actor.listAllVideos();
     },
     enabled: !!actor && !isFetching,
     staleTime: 30_000,
