@@ -11,12 +11,15 @@ import {
   Clock,
   Download,
   Eye,
+  Maximize,
   MessageCircle,
   Pause,
   Play,
   Plus,
   SendHorizontal,
   Share2,
+  SkipBack,
+  SkipForward,
   ThumbsDown,
   ThumbsUp,
   X,
@@ -80,145 +83,6 @@ function timeAgo(uploadTime: bigint): string {
 }
 
 // ---------------------------------------------------------------------------
-// VideoProgressBar
-// ---------------------------------------------------------------------------
-interface VideoProgressBarProps {
-  currentTime: number;
-  duration: number;
-  isDraggingRef: React.MutableRefObject<boolean>;
-  onSeek: (time: number) => void;
-  onDragTime: (time: number) => void;
-  isPlaying: boolean;
-  onPlayPause: () => void;
-}
-
-function VideoProgressBar({
-  currentTime,
-  duration,
-  isDraggingRef,
-  onSeek,
-  onDragTime,
-  isPlaying,
-  onPlayPause,
-}: VideoProgressBarProps) {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const [dragPct, setDragPct] = useState<number | null>(null);
-
-  const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const displayPct = dragPct !== null ? dragPct : pct;
-
-  function getPctFromPointer(e: PointerEvent | React.PointerEvent): number {
-    const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect) return 0;
-    const raw = (e.clientX - rect.left) / rect.width;
-    return Math.max(0, Math.min(1, raw)) * 100;
-  }
-
-  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    isDraggingRef.current = true;
-    const p = getPctFromPointer(e);
-    setDragPct(p);
-    onDragTime((p / 100) * duration);
-  }
-
-  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
-    if (!isDraggingRef.current) return;
-    const p = getPctFromPointer(e);
-    setDragPct(p);
-    onDragTime((p / 100) * duration);
-  }
-
-  function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
-    if (!isDraggingRef.current) return;
-    const p = getPctFromPointer(e);
-    isDraggingRef.current = false;
-    setDragPct(null);
-    onSeek((p / 100) * duration);
-  }
-
-  return (
-    <div className="flex flex-col gap-1 bg-black px-3 py-2">
-      {/* Track row */}
-      <div
-        ref={trackRef}
-        data-ocid="player.canvas_target"
-        role="slider"
-        aria-label="Video progress"
-        aria-valuenow={Math.round(displayPct)}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        tabIndex={0}
-        className="relative flex items-center cursor-pointer select-none"
-        style={{ height: "20px" }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-      >
-        {/* Bar background + fill */}
-        <div
-          className="absolute inset-x-0 rounded-full"
-          style={{
-            height: "4px",
-            top: "50%",
-            transform: "translateY(-50%)",
-            background: `linear-gradient(to right, #FF0000 ${displayPct}%, rgba(255,255,255,0.7) ${displayPct}%)`,
-          }}
-        />
-        {/* Scrubber dot */}
-        <div
-          className="absolute rounded-full pointer-events-none"
-          style={{
-            width: "14px",
-            height: "14px",
-            background: "#FF0000",
-            left: `calc(${displayPct}% - 7px)`,
-            top: "50%",
-            transform: "translateY(-50%)",
-            boxShadow: "0 0 4px rgba(0,0,0,0.8), 0 0 8px rgba(255,0,0,0.4)",
-          }}
-        />
-      </div>
-
-      {/* Time labels + play/pause */}
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          data-ocid="player.toggle"
-          onClick={onPlayPause}
-          className="text-white flex-shrink-0 p-0 leading-none"
-          aria-label={isPlaying ? "Pause" : "Play"}
-        >
-          {isPlaying ? (
-            <Pause size={16} fill="white" />
-          ) : (
-            <Play size={16} fill="white" />
-          )}
-        </button>
-        <span
-          className="text-white text-xs tabular-nums flex-shrink-0"
-          style={{ fontVariantNumeric: "tabular-nums" }}
-        >
-          {duration > 0
-            ? formatDuration(
-                dragPct !== null ? (dragPct / 100) * duration : currentTime,
-              )
-            : "0:00"}
-        </span>
-        <div className="flex-1" />
-        <span
-          className="text-white text-xs tabular-nums flex-shrink-0"
-          style={{ fontVariantNumeric: "tabular-nums" }}
-        >
-          {duration > 0 ? formatDuration(duration) : "0:00"}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // VideoPlayerPage
 // ---------------------------------------------------------------------------
 export function VideoPlayerPage() {
@@ -238,10 +102,24 @@ export function VideoPlayerPage() {
   const hasTracked = useRef(false);
   const playerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const watchStartRef = useRef<number>(0);
   const lastSaveRef = useRef<number>(0);
   const captionBlobUrlRef = useRef<string | null>(null);
   const isDraggingRef = useRef(false);
+  const [dragPct, setDragPct] = useState<number | null>(null);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tapCountRef = useRef(0);
+  const lastTapSideRef = useRef<"left" | "right" | null>(null);
+  const [seekFeedback, setSeekFeedback] = useState<{
+    side: "left" | "right";
+    key: number;
+  } | null>(null);
+  const seekFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const [liked, setLiked] = useState(false);
   const [disliked, setDisliked] = useState(false);
@@ -267,7 +145,7 @@ export function VideoPlayerPage() {
   const [nextVideo, setNextVideo] = useState<Video | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // CC state — default false; auto-enables when tracks load if no preference stored
+  // CC state
   const [ccEnabled, setCcEnabled] = useState(() => {
     try {
       const stored = localStorage.getItem("sp_cc");
@@ -305,13 +183,12 @@ export function VideoPlayerPage() {
     }
   }, [captionTracks.length]);
 
-  // Active track: match selectedLang or fallback to first
   const activeTrack =
     captionTracks.find((t) => t.language === selectedLang) ??
     captionTracks[0] ??
     null;
 
-  // Build blob URL for active track — always build when track has VTT, not gated on ccEnabled
+  // Build blob URL for active track
   useEffect(() => {
     if (captionBlobUrlRef.current) {
       URL.revokeObjectURL(captionBlobUrlRef.current);
@@ -324,7 +201,6 @@ export function VideoPlayerPage() {
     }
   }, [activeTrack]);
 
-  // Cleanup blob URL on unmount
   useEffect(() => {
     return () => {
       if (captionBlobUrlRef.current) {
@@ -344,6 +220,18 @@ export function VideoPlayerPage() {
     }
   }, [ccEnabled, activeTrack]);
 
+  // -------------------------------------------------------------------------
+  // Controls timer helpers
+  // -------------------------------------------------------------------------
+  const resetControlsTimer = () => {
+    if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+    setControlsVisible(true);
+    controlsTimerRef.current = setTimeout(
+      () => setControlsVisible(false),
+      5000,
+    );
+  };
+
   const toggleCc = () => {
     setCcEnabled((prev) => {
       const next = !prev;
@@ -352,6 +240,7 @@ export function VideoPlayerPage() {
       } catch {}
       return next;
     });
+    resetControlsTimer();
   };
 
   const handleLangSelect = (lang: string) => {
@@ -360,13 +249,13 @@ export function VideoPlayerPage() {
       localStorage.setItem("sp_caption_lang", lang);
     } catch {}
     setLangMenuOpen(false);
-    // Ensure CC is on when user picks a language
     if (!ccEnabled) {
       setCcEnabled(true);
       try {
         localStorage.setItem("sp_cc", "1");
       } catch {}
     }
+    resetControlsTimer();
   };
 
   const trackView = async (videoId: string) => {
@@ -419,6 +308,12 @@ export function VideoPlayerPage() {
     setSubscribed(isSubscribed(selectedVideo.creatorId));
     setCurrentTime(0);
     setIsPlaying(false);
+    setControlsVisible(true);
+    if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+    controlsTimerRef.current = setTimeout(
+      () => setControlsVisible(false),
+      5000,
+    );
     if (countdownRef.current) clearInterval(countdownRef.current);
     window.scrollTo({ top: 0 });
     setMiniPlayerActive(false);
@@ -493,6 +388,118 @@ export function VideoPlayerPage() {
     .map((id) => otherVideos.find((v) => v.id === id))
     .filter((v): v is Video => !!v);
 
+  // -------------------------------------------------------------------------
+  // Progress bar helpers (inlined)
+  // -------------------------------------------------------------------------
+  const duration = videoDuration ?? 0;
+  const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const displayPct = dragPct !== null ? dragPct : pct;
+
+  function getPctFromPointer(e: PointerEvent | React.PointerEvent): number {
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    const raw = (e.clientX - rect.left) / rect.width;
+    return Math.max(0, Math.min(1, raw)) * 100;
+  }
+
+  function handleTrackPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    isDraggingRef.current = true;
+    const p = getPctFromPointer(e);
+    setDragPct(p);
+    setCurrentTime((p / 100) * duration);
+    resetControlsTimer();
+  }
+
+  function handleTrackPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!isDraggingRef.current) return;
+    const p = getPctFromPointer(e);
+    setDragPct(p);
+    setCurrentTime((p / 100) * duration);
+  }
+
+  function handleTrackPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!isDraggingRef.current) return;
+    const p = getPctFromPointer(e);
+    isDraggingRef.current = false;
+    setDragPct(null);
+    if (videoRef.current) {
+      videoRef.current.currentTime = (p / 100) * duration;
+      setCurrentTime((p / 100) * duration);
+    }
+    resetControlsTimer();
+  }
+
+  // -------------------------------------------------------------------------
+  // Tap / gesture handling
+  // -------------------------------------------------------------------------
+  const handleVideoTap = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isDraggingRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const side = e.clientX < rect.left + rect.width / 2 ? "left" : "right";
+    tapCountRef.current += 1;
+    lastTapSideRef.current = side;
+    if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+    tapTimerRef.current = setTimeout(() => {
+      const count = tapCountRef.current;
+      const tapSide = lastTapSideRef.current;
+      tapCountRef.current = 0;
+      lastTapSideRef.current = null;
+      if (count >= 2 && tapSide) {
+        // double-tap seek
+        const vid = videoRef.current;
+        if (!vid) return;
+        if (tapSide === "left") {
+          vid.currentTime = Math.max(0, vid.currentTime - 10);
+        } else {
+          vid.currentTime = Math.min(vid.duration || 0, vid.currentTime + 10);
+        }
+        setCurrentTime(vid.currentTime);
+        if (seekFeedbackTimerRef.current)
+          clearTimeout(seekFeedbackTimerRef.current);
+        setSeekFeedback({ side: tapSide, key: Date.now() });
+        seekFeedbackTimerRef.current = setTimeout(
+          () => setSeekFeedback(null),
+          700,
+        );
+        resetControlsTimer();
+      } else {
+        // single tap: toggle controls
+        setControlsVisible((prev) => {
+          if (!prev) {
+            resetControlsTimer();
+          } else {
+            if (controlsTimerRef.current)
+              clearTimeout(controlsTimerRef.current);
+            setControlsVisible(false);
+          }
+          return !prev;
+        });
+      }
+    }, 250);
+  };
+
+  const handlePrevVideo = () => {
+    if (!allVideos || allVideos.length === 0) return;
+    const currentIndex = allVideos.findIndex(
+      (v: Video) => v.id === selectedVideo.id,
+    );
+    const prevIndex = (currentIndex - 1 + allVideos.length) % allVideos.length;
+    handleSelectVideo(allVideos[prevIndex]);
+  };
+
+  const handleNextVideo = () => {
+    if (recommended.length > 0) {
+      handleSelectVideo(recommended[0]);
+    } else if (allVideos && allVideos.length > 0) {
+      const currentIndex = allVideos.findIndex(
+        (v: Video) => v.id === selectedVideo.id,
+      );
+      const nextIndex = (currentIndex + 1) % allVideos.length;
+      handleSelectVideo(allVideos[nextIndex]);
+    }
+  };
+
   const handleVideoEnded = () => {
     setIsPlaying(false);
     if (selectedVideo) trackBehavior(selectedVideo.id, "watchTime", 1.0);
@@ -505,7 +512,6 @@ export function VideoPlayerPage() {
   const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const vid = e.currentTarget;
     if (!selectedVideo || !vid.duration) return;
-    // Update progress bar only when not dragging
     if (!isDraggingRef.current) {
       setCurrentTime(vid.currentTime);
     }
@@ -518,13 +524,6 @@ export function VideoPlayerPage() {
     }
   };
 
-  const handleSeek = (time: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
-  };
-
   const handlePlayPause = () => {
     const vid = videoRef.current;
     if (!vid) return;
@@ -533,6 +532,16 @@ export function VideoPlayerPage() {
     } else {
       vid.pause();
     }
+    resetControlsTimer();
+  };
+
+  const handleFullscreen = () => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (el.requestFullscreen) {
+      el.requestFullscreen().catch(() => {});
+    }
+    resetControlsTimer();
   };
 
   const cancelAutoplay = () => {
@@ -664,7 +673,8 @@ export function VideoPlayerPage() {
 
       {/* Video Player (true 16:9) */}
       <div ref={playerRef} className="w-full bg-black">
-        <div className="relative w-full aspect-video">
+        {/* biome-ignore lint/a11y/useKeyWithClickEvents: video tap area is intentionally click-only */}
+        <div className="relative w-full aspect-video" onClick={handleVideoTap}>
           {videoUrl ? (
             // biome-ignore lint/a11y/useMediaCaption: user-uploaded content
             <video
@@ -676,8 +686,16 @@ export function VideoPlayerPage() {
               className="w-full h-full object-contain"
               onEnded={handleVideoEnded}
               onTimeUpdate={handleTimeUpdate}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
+              onPlay={() => {
+                setIsPlaying(true);
+                resetControlsTimer();
+              }}
+              onPause={() => {
+                setIsPlaying(false);
+                setControlsVisible(true);
+                if (controlsTimerRef.current)
+                  clearTimeout(controlsTimerRef.current);
+              }}
               onLoadedMetadata={(e) => {
                 const d = e.currentTarget.duration;
                 if (d && Number.isFinite(d)) {
@@ -701,6 +719,276 @@ export function VideoPlayerPage() {
               <p className="text-white/40 text-sm">Video unavailable</p>
             </div>
           )}
+
+          {/* ================================================================
+              SINGLE CONTROLS OVERLAY — fades in/out together
+              ================================================================ */}
+          <div
+            className="absolute inset-0 pointer-events-none transition-opacity duration-300"
+            style={{ opacity: controlsVisible ? 1 : 0 }}
+          >
+            {/* Gradient scrim — top & bottom */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background:
+                  "linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 30%, transparent 65%, rgba(0,0,0,0.65) 100%)",
+              }}
+            />
+
+            {/* TOP ROW: CC (left) + Fullscreen (right) */}
+            <div
+              className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 pt-3"
+              style={{ pointerEvents: controlsVisible ? "auto" : "none" }}
+            >
+              {/* CC button */}
+              {hasTracks && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    data-ocid="player.toggle"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (captionTracks.length > 1) {
+                        setLangMenuOpen((o) => !o);
+                        resetControlsTimer();
+                      } else {
+                        toggleCc();
+                      }
+                    }}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                      ccEnabled
+                        ? "bg-black/60 text-white border-white/40"
+                        : "bg-black/40 text-white/50 border-white/20"
+                    }`}
+                    aria-label="Toggle captions"
+                  >
+                    <Captions size={13} />
+                    CC
+                    {captionTracks.length > 1 && (
+                      <ChevronDown size={10} className="ml-0.5" />
+                    )}
+                  </button>
+
+                  {/* Language dropdown — inside overlay */}
+                  <AnimatePresence>
+                    {langMenuOpen && (
+                      <motion.div
+                        data-ocid="player.dropdown_menu"
+                        initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -4, scale: 0.96 }}
+                        transition={{ duration: 0.12 }}
+                        className="absolute top-8 left-0 z-50 bg-black/90 border border-white/20 rounded-xl shadow-lg overflow-hidden min-w-[130px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {/* CC on/off toggle row */}
+                        <button
+                          type="button"
+                          onClick={() => toggleCc()}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-white/10 flex items-center justify-between border-b border-white/10"
+                        >
+                          <span className="text-white/80">Captions</span>
+                          <span
+                            className={`text-[10px] font-bold ${
+                              ccEnabled ? "text-orange-400" : "text-white/40"
+                            }`}
+                          >
+                            {ccEnabled ? "ON" : "OFF"}
+                          </span>
+                        </button>
+                        {captionTracks.map((t) => (
+                          <button
+                            key={t.language}
+                            type="button"
+                            onClick={() => handleLangSelect(t.language)}
+                            className={`w-full text-left px-3 py-2 text-xs hover:bg-white/10 flex items-center justify-between ${
+                              selectedLang === t.language
+                                ? "text-orange-400 font-bold"
+                                : "text-white/80"
+                            }`}
+                          >
+                            {t.captionLabel || t.language}
+                            {selectedLang === t.language && (
+                              <Check size={11} className="text-orange-400" />
+                            )}
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+
+              {/* Spacer when no CC */}
+              {!hasTracks && <div />}
+
+              {/* Fullscreen button — circular */}
+              <button
+                type="button"
+                data-ocid="player.button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleFullscreen();
+                }}
+                className="w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-colors"
+                aria-label="Fullscreen"
+              >
+                <Maximize size={16} />
+              </button>
+            </div>
+
+            {/* CENTER ROW: ⏮ Play/Pause ⏭ */}
+            <div
+              className="absolute inset-0 flex items-center justify-center gap-10"
+              style={{ pointerEvents: controlsVisible ? "auto" : "none" }}
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePrevVideo();
+                }}
+                className="text-white drop-shadow-lg active:scale-90 transition-transform"
+                aria-label="Previous video"
+              >
+                <SkipBack size={32} fill="white" />
+              </button>
+
+              <button
+                type="button"
+                data-ocid="player.toggle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePlayPause();
+                }}
+                className="text-white drop-shadow-lg active:scale-90 transition-transform"
+                aria-label={isPlaying ? "Pause" : "Play"}
+              >
+                {isPlaying ? (
+                  <Pause size={44} fill="white" />
+                ) : (
+                  <Play size={44} fill="white" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleNextVideo();
+                }}
+                className="text-white drop-shadow-lg active:scale-90 transition-transform"
+                aria-label="Next video"
+              >
+                <SkipForward size={32} fill="white" />
+              </button>
+            </div>
+
+            {/* BOTTOM ROW: timeline */}
+            <div
+              className="absolute bottom-0 left-0 right-0 px-3 pb-3 flex flex-col gap-1"
+              style={{ pointerEvents: controlsVisible ? "auto" : "none" }}
+            >
+              {/* Track */}
+              {/* biome-ignore lint/a11y/useKeyWithClickEvents: slider handles keyboard via role=slider and aria */}
+              <div
+                ref={trackRef}
+                data-ocid="player.canvas_target"
+                role="slider"
+                aria-label="Video progress"
+                aria-valuenow={Math.round(displayPct)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                tabIndex={0}
+                className="relative flex items-center cursor-pointer select-none"
+                style={{ height: "20px" }}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  handleTrackPointerDown(e);
+                }}
+                onPointerMove={handleTrackPointerMove}
+                onPointerUp={(e) => {
+                  e.stopPropagation();
+                  handleTrackPointerUp(e);
+                }}
+                onPointerCancel={(e) => {
+                  e.stopPropagation();
+                  handleTrackPointerUp(e);
+                }}
+              >
+                {/* Bar */}
+                <div
+                  className="absolute inset-x-0 rounded-full"
+                  style={{
+                    height: "4px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: `linear-gradient(to right, #FF0000 ${displayPct}%, rgba(255,255,255,0.7) ${displayPct}%)`,
+                  }}
+                />
+                {/* Scrubber */}
+                <div
+                  className="absolute rounded-full pointer-events-none"
+                  style={{
+                    width: "14px",
+                    height: "14px",
+                    background: "#FF0000",
+                    left: `calc(${displayPct}% - 7px)`,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    boxShadow:
+                      "0 0 4px rgba(0,0,0,0.8), 0 0 8px rgba(255,0,0,0.4)",
+                  }}
+                />
+              </div>
+
+              {/* Time labels */}
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-white text-xs tabular-nums"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
+                  {duration > 0
+                    ? formatDuration(
+                        dragPct !== null
+                          ? (dragPct / 100) * duration
+                          : currentTime,
+                      )
+                    : "0:00"}
+                </span>
+                <span
+                  className="text-white text-xs tabular-nums"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
+                  {duration > 0 ? formatDuration(duration) : "0:00"}
+                </span>
+              </div>
+            </div>
+          </div>
+          {/* END CONTROLS OVERLAY */}
+
+          {/* Seek feedback flash */}
+          <AnimatePresence>
+            {seekFeedback && (
+              <motion.div
+                key={seekFeedback.key}
+                initial={{ opacity: 0.9, scale: 0.9 }}
+                animate={{ opacity: 0.9, scale: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="absolute top-1/2 -translate-y-1/2 pointer-events-none"
+                style={{
+                  [seekFeedback.side === "left" ? "left" : "right"]: "12%",
+                }}
+              >
+                <div className="bg-black/60 rounded-full px-3 py-1.5 text-white text-xs font-bold">
+                  {seekFeedback.side === "left" ? "−10s" : "+10s"}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Autoplay countdown overlay */}
           <AnimatePresence>
@@ -767,85 +1055,8 @@ export function VideoPlayerPage() {
             )}
           </AnimatePresence>
         </div>
-
-        {/* Custom progress bar — placed directly below the aspect-video div */}
-        {videoUrl && (
-          <VideoProgressBar
-            currentTime={currentTime}
-            duration={videoDuration ?? 0}
-            isDraggingRef={isDraggingRef}
-            onSeek={handleSeek}
-            onDragTime={(t) => setCurrentTime(t)}
-            isPlaying={isPlaying}
-            onPlayPause={handlePlayPause}
-          />
-        )}
+        {/* END aspect-video */}
       </div>
-
-      {/* CC Controls Bar — below video, only when tracks exist */}
-      {hasTracks && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-black/40 border-b border-white/5">
-          <button
-            type="button"
-            data-ocid="player.toggle"
-            onClick={toggleCc}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
-              ccEnabled
-                ? "bg-orange text-white border-orange"
-                : "bg-transparent text-muted-foreground border-border/50 hover:border-orange/40"
-            }`}
-          >
-            <Captions size={13} />
-            CC
-          </button>
-          {captionTracks.length > 1 && (
-            <div className="relative">
-              <button
-                type="button"
-                data-ocid="player.select"
-                onClick={() => setLangMenuOpen(!langMenuOpen)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border border-border/50 hover:border-orange/40 text-muted-foreground"
-              >
-                {selectedLang.toUpperCase()}
-                <ChevronDown size={10} />
-              </button>
-              <AnimatePresence>
-                {langMenuOpen && (
-                  <motion.div
-                    data-ocid="player.dropdown_menu"
-                    initial={{ opacity: 0, y: -4, scale: 0.96 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -4, scale: 0.96 }}
-                    transition={{ duration: 0.12 }}
-                    className="absolute top-full left-0 mt-1 z-50 bg-surface2 border border-border/60 rounded-xl shadow-lg overflow-hidden min-w-[120px]"
-                  >
-                    {captionTracks.map((t) => (
-                      <button
-                        key={t.language}
-                        type="button"
-                        onClick={() => handleLangSelect(t.language)}
-                        className={`w-full text-left px-3 py-2 text-xs hover:bg-accent flex items-center justify-between ${
-                          selectedLang === t.language
-                            ? "text-orange font-bold"
-                            : "text-foreground"
-                        }`}
-                      >
-                        {t.captionLabel || t.language}
-                        {selectedLang === t.language && (
-                          <Check size={11} className="text-orange" />
-                        )}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-          <span className="ml-auto text-[10px] text-muted-foreground/50">
-            {ccEnabled ? "Captions ON" : "Captions OFF"}
-          </span>
-        </div>
-      )}
 
       {isSticky && (
         <div className="bg-zinc-900/80 border-b border-white/5 px-4 py-2 flex items-center justify-between">
@@ -1127,7 +1338,6 @@ export function VideoPlayerPage() {
       <AnimatePresence>
         {saveSheetOpen && (
           <>
-            {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1135,7 +1345,6 @@ export function VideoPlayerPage() {
               className="fixed inset-0 z-50 bg-black/60"
               onClick={() => setSaveSheetOpen(false)}
             />
-            {/* Sheet */}
             <motion.div
               data-ocid="player.sheet"
               initial={{ y: "100%" }}
@@ -1187,7 +1396,6 @@ export function VideoPlayerPage() {
                 })}
               </div>
 
-              {/* New playlist */}
               <div className="px-4 py-3 border-t border-border/40 flex gap-2">
                 <Input
                   data-ocid="player.input"
