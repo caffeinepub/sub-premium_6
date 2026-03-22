@@ -3,6 +3,7 @@ import {
   RefreshCw,
   RotateCcw,
   Upload,
+  WifiOff,
   X,
   XCircle,
 } from "lucide-react";
@@ -15,10 +16,12 @@ export function UploadProgressBar() {
   const upload = useUpload();
 
   const visible = upload.status !== "idle";
+  const showOffline = upload.isOffline && upload.isActive;
 
   const getLabel = () => {
+    if (showOffline) return "Offline";
     if (upload.status === "uploading") {
-      if (upload.isResuming) return "Resuming...";
+      if (upload.isResuming) return `Resuming from ${upload.progress}%`;
       return `${upload.progress}%`;
     }
     if (upload.status === "processing") return "Processing...";
@@ -31,13 +34,13 @@ export function UploadProgressBar() {
 
   // "X.X / Y.Y MB" display
   const mbLabel =
-    upload.status === "uploading" && upload.totalMB > 0
+    upload.status === "uploading" && upload.totalMB > 0 && !showOffline
       ? `${upload.uploadedMB.toFixed(1)} / ${upload.totalMB.toFixed(1)} MB`
       : null;
 
   // "Chunk N/T" display
   const chunkLabel =
-    upload.status === "uploading" && upload.totalChunks > 0
+    upload.status === "uploading" && upload.totalChunks > 0 && !showOffline
       ? `Chunk ${upload.chunkIndex}/${upload.totalChunks}`
       : null;
 
@@ -63,6 +66,8 @@ export function UploadProgressBar() {
                 <CheckCircle size={18} className="text-green-online" />
               ) : upload.status === "error" ? (
                 <XCircle size={18} className="text-destructive" />
+              ) : showOffline ? (
+                <WifiOff size={18} className="text-amber-400" />
               ) : upload.isResuming ? (
                 <RotateCcw size={18} className="text-sky-400 animate-spin" />
               ) : (
@@ -76,9 +81,16 @@ export function UploadProgressBar() {
                 <p className="text-xs font-medium truncate text-foreground">
                   {upload.title || "Uploading video"}
                 </p>
-                {upload.isResuming && upload.status === "uploading" && (
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-sky-500/20 text-sky-400 uppercase tracking-wide flex-shrink-0">
-                    Resuming
+                {upload.isResuming &&
+                  upload.status === "uploading" &&
+                  !showOffline && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-sky-500/20 text-sky-400 uppercase tracking-wide flex-shrink-0">
+                      Resuming
+                    </span>
+                  )}
+                {showOffline && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 uppercase tracking-wide flex-shrink-0">
+                    Paused
                   </span>
                 )}
               </div>
@@ -90,7 +102,11 @@ export function UploadProgressBar() {
                   <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
                     <motion.div
                       className={`h-full rounded-full ${
-                        upload.isResuming ? "bg-sky-400" : "bg-orange"
+                        showOffline
+                          ? "bg-amber-400/50"
+                          : upload.isResuming
+                            ? "bg-sky-400"
+                            : "bg-orange"
                       }`}
                       style={{ width: `${upload.progress}%` }}
                       transition={{ type: "tween", ease: "linear" }}
@@ -103,17 +119,26 @@ export function UploadProgressBar() {
                       ? "text-green-online"
                       : upload.status === "error"
                         ? "text-destructive"
-                        : upload.isResuming
-                          ? "text-sky-400"
-                          : "text-orange"
+                        : showOffline
+                          ? "text-amber-400"
+                          : upload.isResuming
+                            ? "text-sky-400"
+                            : "text-orange"
                   }`}
                 >
                   {getLabel()}
                 </span>
               </div>
 
+              {/* Offline sub-label */}
+              {showOffline && (
+                <p className="text-[10px] text-amber-400/70 mt-0.5">
+                  Waiting for network...
+                </p>
+              )}
+
               {/* MB + Chunk + Speed row */}
-              {upload.status === "uploading" && (
+              {upload.status === "uploading" && !showOffline && (
                 <p className="text-[10px] text-muted-foreground mt-0.5 flex gap-2 flex-wrap">
                   {mbLabel && (
                     <span className="font-medium text-foreground/60">

@@ -4,7 +4,8 @@
 
 const DB_NAME = "subpremium-upload";
 const STORE_NAME = "upload-state";
-const DB_VERSION = 1;
+const QUEUE_STORE_NAME = "upload-queue";
+const DB_VERSION = 2;
 
 export interface UploadRecord {
   fingerprint: string; // "name|size|lastModified" - primary key
@@ -15,6 +16,27 @@ export interface UploadRecord {
   totalChunks: number;
   fileSizeMB: number;
   savedAt: number; // Date.now()
+  chunksDone?: number[]; // indices of successfully uploaded chunks
+}
+
+export interface QueuedJobRecord {
+  id: string; // primary key
+  fingerprint: string;
+  videoId: string;
+  title: string;
+  status:
+    | "queued"
+    | "uploading"
+    | "paused"
+    | "processing"
+    | "completed"
+    | "failed";
+  progress: number;
+  chunkIndex: number;
+  totalChunks: number;
+  fileSizeMB: number;
+  errorMsg: string;
+  savedAt: number;
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -24,6 +46,9 @@ function openDB(): Promise<IDBDatabase> {
       const db = (e.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: "fingerprint" });
+      }
+      if (!db.objectStoreNames.contains(QUEUE_STORE_NAME)) {
+        db.createObjectStore(QUEUE_STORE_NAME, { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -139,4 +164,68 @@ export async function clearAllUploadRecords(): Promise<void> {
 
 export function getFileFingerprint(file: File): string {
   return `${file.name}|${file.size}|${file.lastModified}`;
+}
+
+// ── Queue persistence ────────────────────────────────────────────────────────
+
+export async function saveQueueState(jobs: QueuedJobRecord[]): Promise<void> {
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(QUEUE_STORE_NAME, "readwrite");
+      const store = tx.objectStore(QUEUE_STORE_NAME);
+      // Clear then repopulate
+      store.clear();
+      for (const job of jobs) {
+        store.put(job);
+      }
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  } catch {
+    // Silently ignore
+  }
+}
+
+export async function loadQueueState(): Promise<QueuedJobRecord[]> {
+  try {
+    const db = await openDB();
+    return await new Promise<QueuedJobRecord[]>((resolve, reject) => {
+      const tx = db.transaction(QUEUE_STORE_NAME, "readonly");
+      const store = tx.objectStore(QUEUE_STORE_NAME);
+      const req = store.getAll();
+      req.onsuccess = () => {
+        db.close();
+        resolve((req.result as QueuedJobRecord[]) || []);
+      };
+      req.onerror = () => {
+        db.close();
+        reject(req.error);
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function clearQueueState(): Promise<void> {
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(QUEUE_STORE_NAME, "readwrite");
+      const store = tx.objectStore(QUEUE_STORE_NAME);
+      const req = store.clear();
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => db.close();
+    });
+  } catch {
+    // Silently ignore
+  }
 }

@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Bookmark,
+  BookmarkCheck,
   Captions,
   Check,
   ChevronDown,
@@ -28,6 +29,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Video } from "../backend";
+import { AddToPlaylistModal } from "../components/AddToPlaylistModal";
 import { VideoCard } from "../components/VideoCard";
 import { useApp } from "../context/AppContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
@@ -39,13 +41,7 @@ import {
 } from "../hooks/useQueries";
 import { checkMilestone, formatMilestone } from "../utils/milestones";
 import { addNotification } from "../utils/notifications";
-import {
-  addVideoToPlaylist,
-  createPlaylist,
-  getPlaylists,
-  isVideoInPlaylist,
-  removeVideoFromPlaylist,
-} from "../utils/playlists";
+import { isVideoInAnyPlaylist } from "../utils/playlists";
 import {
   getRecommendedVideoIds,
   getWatchProgress,
@@ -132,8 +128,6 @@ export function VideoPlayerPage() {
   const [showDesc, setShowDesc] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [saveSheetOpen, setSaveSheetOpen] = useState(false);
-  const [playlists, setPlaylists] = useState(getPlaylists());
-  const [newPlaylistName, setNewPlaylistName] = useState("");
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -626,24 +620,6 @@ export function VideoPlayerPage() {
     } else {
       toast(`Unsubscribed from ${selectedVideo.creatorName || "creator"}`);
     }
-  };
-
-  const handleTogglePlaylist = (playlistId: string) => {
-    if (isVideoInPlaylist(playlistId, selectedVideo.id)) {
-      removeVideoFromPlaylist(playlistId, selectedVideo.id);
-    } else {
-      addVideoToPlaylist(playlistId, selectedVideo.id);
-    }
-    setPlaylists(getPlaylists());
-  };
-
-  const handleCreatePlaylist = () => {
-    if (!newPlaylistName.trim()) return;
-    const pl = createPlaylist(newPlaylistName.trim());
-    addVideoToPlaylist(pl.id, selectedVideo.id);
-    setPlaylists(getPlaylists());
-    setNewPlaylistName("");
-    toast.success(`Added to "${pl.name}"`);
   };
 
   const nextThumb = nextVideo?.thumbnailBlob?.getDirectURL?.();
@@ -1204,13 +1180,14 @@ export function VideoPlayerPage() {
           <button
             type="button"
             data-ocid="player.save_button"
-            onClick={() => {
-              setPlaylists(getPlaylists());
-              setSaveSheetOpen(true);
-            }}
+            onClick={() => setSaveSheetOpen(true)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-sm font-medium transition-colors flex-shrink-0"
           >
-            <Bookmark size={15} />
+            {isVideoInAnyPlaylist(selectedVideo.id) ? (
+              <BookmarkCheck size={15} className="text-orange" />
+            ) : (
+              <Bookmark size={15} />
+            )}
             <span>Save</span>
           </button>
 
@@ -1334,93 +1311,11 @@ export function VideoPlayerPage() {
         </button>
       </div>
 
-      {/* Save to Playlist Sheet */}
-      <AnimatePresence>
-        {saveSheetOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 bg-black/60"
-              onClick={() => setSaveSheetOpen(false)}
-            />
-            <motion.div
-              data-ocid="player.sheet"
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 z-50 bg-surface1 rounded-t-2xl max-h-[70vh] flex flex-col max-w-[430px] mx-auto"
-            >
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
-                <span className="text-sm font-semibold">Save to playlist</span>
-                <button
-                  type="button"
-                  data-ocid="player.close_button"
-                  onClick={() => setSaveSheetOpen(false)}
-                  className="p-1 rounded-full hover:bg-surface2"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto">
-                {playlists.map((pl) => {
-                  const inList = isVideoInPlaylist(pl.id, selectedVideo.id);
-                  return (
-                    <button
-                      key={pl.id}
-                      type="button"
-                      data-ocid="player.toggle"
-                      onClick={() => handleTogglePlaylist(pl.id)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-surface2 transition-colors border-b border-border/20"
-                    >
-                      <div className="text-left">
-                        <p className="text-sm font-medium text-foreground">
-                          {pl.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {pl.videoIds.length} video
-                          {pl.videoIds.length !== 1 ? "s" : ""}
-                        </p>
-                      </div>
-                      {inList && (
-                        <Check
-                          size={16}
-                          className="text-orange flex-shrink-0"
-                        />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="px-4 py-3 border-t border-border/40 flex gap-2">
-                <Input
-                  data-ocid="player.input"
-                  value={newPlaylistName}
-                  onChange={(e) => setNewPlaylistName(e.target.value)}
-                  placeholder="New playlist name..."
-                  className="flex-1 h-9 text-sm bg-surface2 border-border/60"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCreatePlaylist();
-                  }}
-                />
-                <button
-                  type="button"
-                  data-ocid="player.primary_button"
-                  onClick={handleCreatePlaylist}
-                  disabled={!newPlaylistName.trim()}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange text-white text-sm font-medium disabled:opacity-40 transition-colors"
-                >
-                  <Plus size={14} /> Create
-                </button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+      <AddToPlaylistModal
+        videoId={selectedVideo.id}
+        open={saveSheetOpen}
+        onClose={() => setSaveSheetOpen(false)}
+      />
     </motion.div>
   );
 }

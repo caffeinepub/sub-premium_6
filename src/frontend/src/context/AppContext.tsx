@@ -1,7 +1,13 @@
 import { type ReactNode, createContext, useContext, useState } from "react";
 import type { Video } from "../backend";
 
-export type Page = "home" | "player" | "upload" | "history" | "menu";
+export type Page =
+  | "home"
+  | "player"
+  | "upload"
+  | "history"
+  | "menu"
+  | "playlist";
 
 interface AppContextValue {
   page: Page;
@@ -22,6 +28,8 @@ interface AppContextValue {
   setNotificationPanelOpen: (v: boolean) => void;
   notifTick: number;
   setNotifTick: React.Dispatch<React.SetStateAction<number>>;
+  selectedPlaylistId: string | null;
+  setSelectedPlaylistId: (id: string | null) => void;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
@@ -38,6 +46,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [miniPlayerVideo, setMiniPlayerVideo] = useState<Video | null>(null);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const [notifTick, setNotifTick] = useState(0);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(
+    null,
+  );
 
   return (
     <AppContext.Provider
@@ -60,6 +71,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setNotificationPanelOpen,
         notifTick,
         setNotifTick,
+        selectedPlaylistId,
+        setSelectedPlaylistId,
       }}
     >
       {children}

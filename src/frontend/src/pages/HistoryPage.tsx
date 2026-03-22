@@ -2,7 +2,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Clock, Play } from "lucide-react";
 import { motion } from "motion/react";
-import type { Video } from "../backend";
+import type { Video, VideoView } from "../backend";
 import { useApp } from "../context/AppContext";
 import { useListVideos, useWatchHistory } from "../hooks/useQueries";
 
@@ -25,10 +25,21 @@ export function HistoryPage() {
 
   const videoMap = new Map<string, Video>(allVideos.map((v) => [v.id, v]));
 
-  const historyItems = history
+  // Deduplicate: keep most recent entry per videoId
+  const dedupMap = new Map<string, VideoView>();
+  for (const h of history) {
+    const existing = dedupMap.get(h.videoId);
+    if (!existing || h.timestamp > existing.timestamp) {
+      dedupMap.set(h.videoId, h);
+    }
+  }
+  const deduped = Array.from(dedupMap.values())
+    .sort((a, b) => Number(b.timestamp - a.timestamp))
+    .slice(0, 100);
+
+  const historyItems = deduped
     .map((h) => ({ view: h, video: videoMap.get(h.videoId) }))
-    .filter((item) => item.video !== undefined)
-    .slice(0, 50);
+    .filter((item) => item.video !== undefined);
 
   const handleVideoClick = (video: Video) => {
     setSelectedVideo(video);

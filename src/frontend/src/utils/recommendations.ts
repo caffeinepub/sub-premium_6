@@ -174,6 +174,16 @@ export function getContinueWatchingVideoIds(limit = 10): string[] {
     .map(([id]) => id);
 }
 
+/** Returns total count of continue-watching items (no limit applied) */
+export function getContinueWatchingCount(): number {
+  const store = readProgress();
+  return Object.entries(store).filter(([, entry]) => {
+    if (!entry.duration || entry.duration <= 0) return false;
+    const pct = entry.progress / entry.duration;
+    return pct > 0.05 && pct < 0.95;
+  }).length;
+}
+
 // ── Progress percentage helper ───────────────────────────────────────────────
 export function getWatchProgressPercent(videoId: string): number {
   const store = readProgress();

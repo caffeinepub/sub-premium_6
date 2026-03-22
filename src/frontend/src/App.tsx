@@ -1,23 +1,30 @@
 import { Toaster } from "@/components/ui/sonner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AnimatePresence } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { IntroScreen } from "./IntroScreen";
 import type { Video } from "./backend";
 import { BottomNav } from "./components/BottomNav";
 import { FloatingMiniPlayer } from "./components/FloatingMiniPlayer";
+import { GlobalUploadManager } from "./components/GlobalUploadManager";
 import { Header } from "./components/Header";
 import { LoginModal } from "./components/LoginModal";
+import { ManageStorageSheet } from "./components/ManageStorageSheet";
 import { SettingsSheet } from "./components/SettingsSheet";
-import { UploadProgressBar } from "./components/UploadProgressBar";
 import { AppProvider, useApp } from "./context/AppContext";
-import { UploadProvider } from "./context/UploadContext";
+import { UploadQueueProvider } from "./context/UploadQueueContext";
 import { InternetIdentityProvider } from "./hooks/useInternetIdentity";
 import { HistoryPage } from "./pages/HistoryPage";
 import { HomePage } from "./pages/HomePage";
 import { MenuPage } from "./pages/MenuPage";
+import { PlaylistPage } from "./pages/PlaylistPage";
 import { UploadPage } from "./pages/UploadPage";
 import { VideoPlayerPage } from "./pages/VideoPlayerPage";
+import {
+  autoCleanupOldEntries,
+  getTotalStorageEstimate,
+  isStorageHigh,
+} from "./utils/storageManager";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,6 +35,20 @@ const queryClient = new QueryClient({
 function AppContent() {
   const { page, setSelectedVideo, setPage } = useApp();
   const [searchTerm, setSearchTerm] = useState("");
+  const [storageBannerVisible, setStorageBannerVisible] = useState(false);
+  const [manageStorageOpen, setManageStorageOpen] = useState(false);
+
+  useEffect(() => {
+    autoCleanupOldEntries();
+  }, []);
+
+  useEffect(() => {
+    getTotalStorageEstimate().then((breakdown) => {
+      if (isStorageHigh(breakdown.total)) {
+        setStorageBannerVisible(true);
+      }
+    });
+  }, []);
 
   const handleVideoSelect = (video: Video) => {
     setSelectedVideo(video);
@@ -42,7 +63,29 @@ function AppContent() {
         onVideoSelect={handleVideoSelect}
       />
 
-      {/* Main scrollable area — pb-16 reserves space for fixed BottomNav */}
+      {storageBannerVisible && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-orange-500/15 border-b border-orange-500/25 flex-shrink-0">
+          <span className="text-xs text-orange-300 flex-1">
+            Storage is getting full — free up space
+          </span>
+          <button
+            type="button"
+            onClick={() => setManageStorageOpen(true)}
+            className="text-xs font-semibold text-orange-400 hover:text-orange-300 underline underline-offset-2 flex-shrink-0"
+            data-ocid="home.primary_button"
+          >
+            Manage
+          </button>
+          <button
+            type="button"
+            onClick={() => setStorageBannerVisible(false)}
+            className="text-orange-400/60 hover:text-orange-300 ml-1"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto pb-16">
         <AnimatePresence mode="wait">
           {page === "home" && (
@@ -70,14 +113,23 @@ function AppContent() {
               <MenuPage />
             </div>
           )}
+          {page === "playlist" && (
+            <div key="playlist">
+              <PlaylistPage />
+            </div>
+          )}
         </AnimatePresence>
       </div>
 
-      <UploadProgressBar />
+      <GlobalUploadManager />
       <BottomNav />
       <LoginModal />
       <SettingsSheet />
       <FloatingMiniPlayer />
+      <ManageStorageSheet
+        open={manageStorageOpen}
+        onOpenChange={setManageStorageOpen}
+      />
     </div>
   );
 }
@@ -86,6 +138,14 @@ export default function App() {
   const [showIntro, setShowIntro] = useState(
     () => !sessionStorage.getItem("introShown"),
   );
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {
+        /* non-critical */
+      });
+    }
+  }, []);
 
   const handleIntroComplete = () => {
     sessionStorage.setItem("introShown", "1");
@@ -96,21 +156,14 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <InternetIdentityProvider>
         <AppProvider>
-          <UploadProvider>
-            {showIntro && <IntroScreen onComplete={handleIntroComplete} />}
-            <AppContent />
-            <Toaster
-              theme="dark"
-              position="top-center"
-              toastOptions={{
-                style: {
-                  background: "oklch(0.21 0.012 240)",
-                  border: "1px solid oklch(0.26 0.012 240)",
-                  color: "oklch(0.96 0.005 240)",
-                },
-              }}
-            />
-          </UploadProvider>
+          <UploadQueueProvider>
+            {showIntro ? (
+              <IntroScreen onComplete={handleIntroComplete} />
+            ) : (
+              <AppContent />
+            )}
+            <Toaster />
+          </UploadQueueProvider>
         </AppProvider>
       </InternetIdentityProvider>
     </QueryClientProvider>

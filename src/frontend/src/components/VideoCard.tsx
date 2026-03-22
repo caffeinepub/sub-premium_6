@@ -1,7 +1,9 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Clock, Eye, MoreVertical } from "lucide-react";
+import { Bookmark, BookmarkCheck, Clock, Eye } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Video } from "../backend";
+import { isVideoInAnyPlaylist } from "../utils/playlists";
+import { AddToPlaylistModal } from "./AddToPlaylistModal";
 
 interface VideoCardProps {
   video: Video;
@@ -91,6 +93,16 @@ export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
     video.status === "processing" || video.status === "uploading";
   const qualityLevel = video.qualityLevel || "";
   const duration = useDuration(videoUrl);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [inPlaylist, setInPlaylist] = useState(() =>
+    isVideoInAnyPlaylist(video.id),
+  );
+
+  // Refresh inPlaylist when modal closes
+  const handleModalClose = () => {
+    setSaveModalOpen(false);
+    setInPlaylist(isVideoInAnyPlaylist(video.id));
+  };
 
   return (
     <div
@@ -99,39 +111,45 @@ export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
       style={{ animationDelay: `${index * 50}ms` }}
     >
       {/* Thumbnail - clickable area */}
-      <button
-        type="button"
-        className="relative rounded-lg overflow-hidden aspect-video bg-surface2 mb-2 w-full block"
-        onClick={onClick}
-        aria-label={`Play ${video.title}`}
-      >
-        {thumbUrl ? (
-          <img
-            src={thumbUrl}
-            alt={video.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-surface2 to-accent/30">
-            <svg
-              aria-hidden="true"
-              width="32"
-              height="32"
-              viewBox="0 0 32 32"
-              fill="none"
-            >
-              <path d="M10 7L25 16L10 25V7Z" fill="oklch(0.68 0.18 35 / 0.5)" />
-            </svg>
-          </div>
-        )}
+      <div className="relative rounded-lg overflow-hidden aspect-video bg-surface2 mb-2 w-full">
+        <button
+          type="button"
+          className="absolute inset-0 w-full h-full"
+          onClick={onClick}
+          aria-label={`Play ${video.title}`}
+        >
+          {thumbUrl ? (
+            <img
+              src={thumbUrl}
+              alt={video.title}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-surface2 to-accent/30">
+              <svg
+                aria-hidden="true"
+                width="32"
+                height="32"
+                viewBox="0 0 32 32"
+                fill="none"
+              >
+                <path
+                  d="M10 7L25 16L10 25V7Z"
+                  fill="oklch(0.68 0.18 35 / 0.5)"
+                />
+              </svg>
+            </div>
+          )}
+        </button>
+
         {duration !== null && (
-          <div className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
+          <div className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono pointer-events-none">
             {formatDuration(duration)}
           </div>
         )}
         {/* Processing overlay badge */}
         {isProcessing && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center pointer-events-none">
             <span className="bg-black/80 text-white text-[10px] px-2 py-1 rounded-full font-medium animate-pulse">
               Processing...
             </span>
@@ -139,20 +157,38 @@ export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
         )}
         {/* Quality chip */}
         {!isProcessing && qualityLevel && (
-          <div className="absolute bottom-1 left-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono font-bold">
+          <div className="absolute bottom-1 left-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono font-bold pointer-events-none">
             {qualityLevel}
           </div>
         )}
         {/* Progress bar */}
         {progress !== undefined && progress > 0 && (
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20 pointer-events-none">
             <div
               className="h-full bg-orange-500"
               style={{ width: `${Math.min(progress, 100)}%` }}
             />
           </div>
         )}
-      </button>
+
+        {/* Bookmark / Save button */}
+        <button
+          type="button"
+          data-ocid={`video.edit_button.${index}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSaveModalOpen(true);
+          }}
+          className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-black/80 transition-colors"
+          aria-label="Save to playlist"
+        >
+          {inPlaylist ? (
+            <BookmarkCheck size={13} className="text-orange" />
+          ) : (
+            <Bookmark size={13} className="text-white" />
+          )}
+        </button>
+      </div>
 
       {/* Info */}
       <div className="flex gap-2">
@@ -182,15 +218,13 @@ export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
             </span>
           </div>
         </button>
-        <button
-          type="button"
-          data-ocid={`video.edit_button.${index}`}
-          className="p-1 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <MoreVertical size={14} />
-        </button>
       </div>
+
+      <AddToPlaylistModal
+        videoId={video.id}
+        open={saveModalOpen}
+        onClose={handleModalClose}
+      />
     </div>
   );
 }

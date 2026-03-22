@@ -1,11 +1,20 @@
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bell } from "lucide-react";
+import { Bell, ListVideo, Play, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Video } from "../backend";
+import { AddToPlaylistModal } from "../components/AddToPlaylistModal";
 import { VideoCard } from "../components/VideoCard";
 import { useApp } from "../context/AppContext";
+import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { useListVideos } from "../hooks/useQueries";
 import {
+  type PlaylistPrivacy,
+  createPlaylist,
+  getPlaylists,
+} from "../utils/playlists";
+import {
+  getContinueWatchingCount,
   getContinueWatchingVideoIds,
   getRecommendedVideoIds,
   getWatchProgressPercent,
@@ -43,11 +52,13 @@ function HorizontalRow({
   videos,
   onVideoClick,
   showProgress,
+  onViewMore,
 }: {
   title: string;
   videos: Video[];
   onVideoClick: (v: Video) => void;
   showProgress?: boolean;
+  onViewMore?: () => void;
 }) {
   if (videos.length === 0) return null;
   return (
@@ -71,6 +82,17 @@ function HorizontalRow({
             </div>
           );
         })}
+        {onViewMore && (
+          <button
+            type="button"
+            onClick={onViewMore}
+            data-ocid="home.history.button"
+            className="flex-shrink-0 w-20 h-full min-h-[120px] flex flex-col items-center justify-center gap-1 text-orange text-xs font-semibold bg-surface2/60 rounded-xl border border-border/30"
+          >
+            <span className="text-lg">⋯</span>
+            <span>View more</span>
+          </button>
+        )}
       </div>
     </section>
   );
@@ -112,6 +134,204 @@ function GridSection({
   );
 }
 
+// ── Playlists Row ─────────────────────────────────────────────────────────────
+function PlaylistsRow() {
+  const { setPage, setSelectedPlaylistId } = useApp();
+  const [playlists, setPlaylists] = useState(() => getPlaylists());
+  const { data: allVideos = [] } = useListVideos();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newPrivacy, setNewPrivacy] = useState<PlaylistPrivacy>("public");
+  // For AddToPlaylistModal (create-only mode reuse: just open empty)
+  const [addModalVideoId, setAddModalVideoId] = useState<string | null>(null);
+
+  const videoMap = new Map(allVideos.map((v) => [v.id, v]));
+  const preview = playlists.slice(0, 10);
+  const hasMore = playlists.length > 10;
+
+  const handleCreatePlaylist = () => {
+    if (!newTitle.trim()) return;
+    createPlaylist(newTitle.trim(), newPrivacy);
+    setPlaylists(getPlaylists());
+    setNewTitle("");
+    setNewPrivacy("public");
+    setCreateOpen(false);
+  };
+
+  return (
+    <section className="mb-5">
+      <div className="flex items-center justify-between px-3 mb-2">
+        <div className="flex items-center gap-1.5">
+          <ListVideo size={14} className="text-orange" />
+          <h2 className="text-sm font-semibold text-foreground">Playlists</h2>
+        </div>
+        {hasMore && (
+          <button
+            type="button"
+            data-ocid="home.primary_button"
+            onClick={() => setPage("menu")}
+            className="text-xs text-orange font-medium hover:text-orange/80 transition-colors"
+          >
+            View all
+          </button>
+        )}
+      </div>
+
+      <div className="flex gap-3 overflow-x-auto px-3 pb-2 no-scrollbar">
+        {preview.map((pl, i) => {
+          const firstVideoId = pl.videoIds[0];
+          const firstVideo = firstVideoId ? videoMap.get(firstVideoId) : null;
+          const thumbUrl = firstVideo?.thumbnailBlob?.getDirectURL?.();
+          return (
+            <button
+              key={pl.id}
+              type="button"
+              data-ocid={`home.item.${i + 1}`}
+              onClick={() => {
+                setSelectedPlaylistId(pl.id);
+                setPage("playlist");
+              }}
+              className="flex-shrink-0 w-32 text-left group"
+            >
+              {/* Thumbnail */}
+              <div className="relative w-32 h-20 rounded-xl overflow-hidden bg-surface2 mb-1.5">
+                {thumbUrl ? (
+                  <img
+                    src={thumbUrl}
+                    alt={pl.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-surface2 to-orange/15 flex items-center justify-center">
+                    <Play size={18} className="text-orange/40" />
+                  </div>
+                )}
+                {/* Count overlay */}
+                <div className="absolute bottom-1.5 right-1.5 bg-black/80 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded">
+                  {pl.videoIds.length} video
+                  {pl.videoIds.length !== 1 ? "s" : ""}
+                </div>
+              </div>
+              <p className="text-xs font-medium text-foreground truncate leading-snug">
+                {pl.title}
+              </p>
+            </button>
+          );
+        })}
+
+        {/* Create new playlist button */}
+        <button
+          type="button"
+          data-ocid="home.open_modal_button"
+          onClick={() => setCreateOpen(true)}
+          className="flex-shrink-0 w-32 flex flex-col items-center justify-center gap-2 h-20 rounded-xl border-2 border-dashed border-border/40 hover:border-orange/40 transition-colors text-muted-foreground hover:text-orange"
+        >
+          <Plus size={20} />
+          <span className="text-[10px] font-medium">New playlist</span>
+        </button>
+
+        {hasMore && (
+          <button
+            type="button"
+            onClick={() => setPage("menu")}
+            data-ocid="home.secondary_button"
+            className="flex-shrink-0 w-20 h-20 flex flex-col items-center justify-center gap-1 text-orange text-xs font-semibold bg-surface2/60 rounded-xl border border-border/30"
+          >
+            <span className="text-lg">⋯</span>
+            <span>View more</span>
+          </button>
+        )}
+      </div>
+
+      {/* Inline create modal */}
+      {createOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="Close"
+            className="fixed inset-0 z-50 bg-black/60 w-full h-full cursor-default"
+            onClick={() => setCreateOpen(false)}
+          />
+          <div
+            data-ocid="home.modal"
+            className="fixed bottom-0 left-0 right-0 z-50 bg-[#1a1a1a] rounded-t-2xl px-4 py-5 max-w-[430px] mx-auto border-t border-white/10"
+          >
+            <p className="text-sm font-semibold text-white mb-4">
+              Create Playlist
+            </p>
+            <Input
+              data-ocid="home.input"
+              autoFocus
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreatePlaylist()}
+              placeholder="Playlist name..."
+              className="bg-white/10 border-white/20 text-white placeholder:text-white/40 focus-visible:ring-orange h-9 text-sm mb-3"
+            />
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xs text-white/50">Privacy:</span>
+              <button
+                type="button"
+                data-ocid="home.toggle"
+                onClick={() => setNewPrivacy("public")}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  newPrivacy === "public"
+                    ? "bg-orange text-white"
+                    : "bg-white/10 text-white/60 hover:bg-white/15"
+                }`}
+              >
+                Public
+              </button>
+              <button
+                type="button"
+                data-ocid="home.toggle"
+                onClick={() => setNewPrivacy("private")}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  newPrivacy === "private"
+                    ? "bg-orange text-white"
+                    : "bg-white/10 text-white/60 hover:bg-white/15"
+                }`}
+              >
+                Private
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                data-ocid="home.cancel_button"
+                onClick={() => {
+                  setCreateOpen(false);
+                  setNewTitle("");
+                }}
+                className="flex-1 py-2 rounded-xl bg-white/10 text-white/70 text-sm font-medium hover:bg-white/15 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-ocid="home.confirm_button"
+                onClick={handleCreatePlaylist}
+                disabled={!newTitle.trim()}
+                className="flex-1 py-2 rounded-xl bg-orange text-white text-sm font-semibold disabled:opacity-40 transition-colors"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {addModalVideoId && (
+        <AddToPlaylistModal
+          videoId={addModalVideoId}
+          open
+          onClose={() => setAddModalVideoId(null)}
+        />
+      )}
+    </section>
+  );
+}
+
 export function HomePage({ searchTerm }: HomePageProps) {
   const {
     setPage,
@@ -119,6 +339,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
     justUploadedVideoId,
     setJustUploadedVideoId,
   } = useApp();
+  const { identity } = useInternetIdentity();
   const [activeTab, setActiveTab] = useState<Tab>("forYou");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [recTick, setRecTick] = useState(0);
@@ -172,6 +393,8 @@ export function HomePage({ searchTerm }: HomePageProps) {
     .map((id) => videoMap.get(id))
     .filter((v): v is Video => !!v);
 
+  const totalContinueWatching = getContinueWatchingCount();
+
   const recommendedIds = getRecommendedVideoIds(
     videos.map((v) => ({ id: v.id, creatorId: v.creatorId })),
     6,
@@ -201,6 +424,27 @@ export function HomePage({ searchTerm }: HomePageProps) {
   const subscribedVideos = videos.filter((v) =>
     subscriptions.includes(v.creatorId),
   );
+
+  // Your Videos (user uploads)
+  const userPrincipal = identity?.getPrincipal().toString();
+  const yourVideos = userPrincipal
+    ? videos.filter((v) => v.creatorId === userPrincipal).slice(0, 5)
+    : [];
+
+  // Liked Videos
+  const likedVideoIds: string[] = (() => {
+    try {
+      return JSON.parse(
+        localStorage.getItem("sub_liked_videos") ?? "[]",
+      ) as string[];
+    } catch {
+      return [];
+    }
+  })();
+  const likedVideos = likedVideoIds
+    .map((id) => videoMap.get(id))
+    .filter((v): v is Video => !!v)
+    .slice(0, 5);
 
   return (
     <main className="flex-1 overflow-y-auto pb-20">
@@ -290,24 +534,78 @@ export function HomePage({ searchTerm }: HomePageProps) {
           </div>
         ) : activeTab === "forYou" ? (
           <div data-ocid="home.list">
+            {/* 1. Continue Watching */}
             {continueWatchingVideos.length > 0 && (
               <HorizontalRow
                 title="Continue Watching"
                 videos={continueWatchingVideos}
                 onVideoClick={handleVideoClick}
                 showProgress
+                onViewMore={
+                  totalContinueWatching > 10
+                    ? () => setPage("history")
+                    : undefined
+                }
               />
             )}
+
+            {/* 2. Playlists */}
+            <PlaylistsRow />
+
+            {/* 3. Your Videos */}
+            {yourVideos.length > 0 && (
+              <section className="mb-5">
+                <div className="flex items-center justify-between px-3 mb-2">
+                  <h2 className="text-sm font-semibold text-foreground">
+                    Your Videos
+                  </h2>
+                  <button
+                    type="button"
+                    data-ocid="home.secondary_button"
+                    onClick={() => setPage("menu")}
+                    className="text-xs text-orange font-medium hover:text-orange/80 transition-colors"
+                  >
+                    View all
+                  </button>
+                </div>
+                <div className="flex gap-3 overflow-x-auto px-3 pb-2 no-scrollbar">
+                  {yourVideos.map((video, i) => (
+                    <div key={video.id} className="flex-shrink-0 w-44">
+                      <VideoCard
+                        video={video}
+                        index={i + 1}
+                        onClick={() => handleVideoClick(video)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* 4. Liked Videos */}
+            {likedVideos.length > 0 && (
+              <HorizontalRow
+                title="Liked Videos"
+                videos={likedVideos}
+                onVideoClick={handleVideoClick}
+              />
+            )}
+
+            {/* 5. Recommended */}
             <GridSection
               title="Recommended for You"
               videos={recommendedVideos}
               onVideoClick={handleVideoClick}
             />
+
+            {/* 6. Trending Now */}
             <HorizontalRow
               title="Trending Now"
               videos={trendingVideos}
               onVideoClick={handleVideoClick}
             />
+
+            {/* 7. Discover New */}
             {discoverVideos.length > 0 && (
               <GridSection
                 title="Discover New"

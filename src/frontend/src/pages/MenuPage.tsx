@@ -47,14 +47,10 @@ import {
   useSaveProfile,
   useUserProfile,
 } from "../hooks/useQueries";
-import {
-  deletePlaylist,
-  getPlaylists,
-  removeVideoFromPlaylist,
-} from "../utils/playlists";
+import { deletePlaylist, getPlaylists } from "../utils/playlists";
 
 export function MenuPage() {
-  const { setPage, setSelectedVideo } = useApp();
+  const { setPage, setSelectedVideo, setSelectedPlaylistId } = useApp();
   const { identity, login, isInitializing } = useInternetIdentity();
   const { actor, isFetching: actorFetching } = useActor();
   const { data: profile, isLoading: profileLoading } = useUserProfile();
@@ -73,7 +69,6 @@ export function MenuPage() {
 
   // Playlist state
   const [playlists, setPlaylists] = useState(getPlaylists());
-  const [expandedPlaylist, setExpandedPlaylist] = useState<string | null>(null);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -214,11 +209,6 @@ export function MenuPage() {
           ) : (
             <div data-ocid="menu.list" className="space-y-2">
               {playlists.map((pl, idx) => {
-                const isExpanded = expandedPlaylist === pl.id;
-                const playlistVideos = pl.videoIds
-                  .map((id) => allVideos.find((v) => v.id === id))
-                  .filter((v): v is Video => !!v);
-
                 return (
                   <div
                     key={pl.id}
@@ -227,9 +217,10 @@ export function MenuPage() {
                   >
                     <button
                       type="button"
-                      onClick={() =>
-                        setExpandedPlaylist(isExpanded ? null : pl.id)
-                      }
+                      onClick={() => {
+                        setSelectedPlaylistId(pl.id);
+                        setPage("playlist");
+                      }}
                       className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-surface2 transition-colors text-left"
                     >
                       <Bookmark
@@ -260,63 +251,6 @@ export function MenuPage() {
                         </button>
                       )}
                     </button>
-
-                    <AnimatePresence>
-                      {isExpanded && (
-                        <motion.div
-                          initial={{ height: 0 }}
-                          animate={{ height: "auto" }}
-                          exit={{ height: 0 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="border-t border-border/30 px-3 py-2 space-y-2">
-                            {playlistVideos.length === 0 ? (
-                              <p className="text-xs text-muted-foreground py-2 text-center">
-                                No videos yet
-                              </p>
-                            ) : (
-                              playlistVideos.map((video) => (
-                                <div
-                                  key={video.id}
-                                  className="flex items-center gap-2"
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={() => handleVideoClick(video)}
-                                    className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
-                                  >
-                                    <div className="w-14 h-9 rounded bg-surface2 flex-shrink-0 overflow-hidden">
-                                      {video.thumbnailBlob?.getDirectURL?.() ? (
-                                        <img
-                                          src={video.thumbnailBlob.getDirectURL()}
-                                          alt=""
-                                          className="w-full h-full object-cover"
-                                        />
-                                      ) : (
-                                        <div className="w-full h-full bg-surface2" />
-                                      )}
-                                    </div>
-                                    <p className="text-xs text-foreground line-clamp-2">
-                                      {video.title}
-                                    </p>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      removeVideoFromPlaylist(pl.id, video.id);
-                                      refreshPlaylists();
-                                    }}
-                                    className="p-1 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
-                                  >
-                                    <X size={12} />
-                                  </button>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
                   </div>
                 );
               })}

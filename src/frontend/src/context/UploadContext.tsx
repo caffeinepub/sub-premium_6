@@ -32,6 +32,8 @@ const MAX_WARN_SIZE = 500 * 1024 * 1024;
 const MAX_BLOCK_SIZE = 1 * 1024 * 1024 * 1024;
 /** StorageClient internal chunk size (1 MB) */
 const CHUNK_SIZE_BYTES = 1024 * 1024;
+/** 3 MB per streaming chunk for memory-safe reads */
+const UPLOAD_CHUNK_SIZE = 3 * 1024 * 1024;
 
 interface UploadState {
   status: UploadStatus;
@@ -47,6 +49,7 @@ interface UploadState {
   uploadSpeed: string;
   timeRemaining: string;
   isResuming: boolean;
+  isOffline: boolean;
 }
 
 export interface UploadParams {
@@ -104,6 +107,27 @@ function formatTime(seconds: number): string {
   return `${s}s`;
 }
 
+/**
+ * Exponential-backoff retry wrapper.
+ * Retries up to maxAttempts times, doubling the delay each time.
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts = 5,
+  baseDelayMs = 1000,
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (err) {
+      attempt++;
+      if (attempt >= maxAttempts) throw err;
+      await new Promise((r) => setTimeout(r, baseDelayMs * 2 ** (attempt - 1)));
+    }
+  }
+}
+
 export function UploadProvider({ children }: { children: ReactNode }) {
   const { actor } = useActor();
   const qc = useQueryClient();
@@ -122,6 +146,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const [uploadSpeed, setUploadSpeed] = useState("");
   const [timeRemaining, setTimeRemaining] = useState("");
   const [isResuming, setIsResuming] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
   const [processingStage, setProcessingStage] = useState<
     "" | "480p" | "720p" | "1080p"
   >("");
@@ -136,6 +161,52 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const lastSaveRef = useRef<number>(0);
   const progressRef = useRef<number>(0);
   const chunkIndexRef = useRef<number>(0);
+  const statusRef = useRef<UploadStatus>("idle");
+  const errorMsgRef = useRef<string>("");
+
+  // Keep statusRef / errorMsgRef in sync
+  useEffect(() => {
+    statusRef.current = status;
+    errorMsgRef.current = errorMsg;
+  }, [status, errorMsg]);
+
+  // ── Online / offline detection ──────────────────────────────────────────
+  useEffect(() => {
+    const handleOffline = () => {
+      setIsOffline(true);
+      console.info(
+        "[UploadContext] Network offline — upload will retry when connection restores.",
+      );
+    };
+
+    const handleOnline = () => {
+      setIsOffline(false);
+      // Auto-retry if upload was in error state due to a network error
+      if (
+        statusRef.current === "error" &&
+        errorMsgRef.current.toLowerCase().includes("connection")
+      ) {
+        if (paramsRef.current) {
+          setProgress(progressRef.current);
+          setUploadedMB(
+            (progressRef.current / 100) *
+              (paramsRef.current.videoFile.size / (1024 * 1024)),
+          );
+          // Keep videoIdRef so chunks are skipped server-side
+          doUpload(paramsRef.current);
+        }
+      }
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // On mount, check IndexedDB for any interrupted upload
   useEffect(() => {
@@ -157,6 +228,23 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       fingerprintRef.current = record.fingerprint;
     });
   }, []);
+
+  // ── Navigation guard — prevent accidental page leave during upload ──────
+  const isActive = status === "uploading" || status === "processing";
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Modern browsers require returnValue to be set
+      e.returnValue = "Upload in progress — leave and lose progress?";
+      return e.returnValue;
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isActive]);
 
   /**
    * Check whether a newly selected file matches a saved interrupted upload.
@@ -263,13 +351,38 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       uploadStartTimeRef.current = Date.now();
       totalBytesRef.current = sizeBytes;
 
+      // Keep reference so GC can collect after upload
+      let videoBytes: Uint8Array<ArrayBuffer> | null = null;
+
       try {
-        // ── Load video bytes (guarded against OOM) ────────────────────
-        let videoBytes: Uint8Array<ArrayBuffer>;
+        // ── Memory-safe video bytes load ──────────────────────────────
         try {
-          videoBytes = new Uint8Array(
-            (await params.videoFile.arrayBuffer()) as ArrayBuffer,
-          );
+          if (sizeBytes > 200 * 1024 * 1024) {
+            // For files > 200 MB, read in UPLOAD_CHUNK_SIZE segments and concatenate
+            // to reduce peak memory vs one giant arrayBuffer() call
+            const parts: Uint8Array[] = [];
+            let offset = 0;
+            while (offset < sizeBytes) {
+              const end = Math.min(offset + UPLOAD_CHUNK_SIZE, sizeBytes);
+              const segBuf = await params.videoFile
+                .slice(offset, end)
+                .arrayBuffer();
+              parts.push(new Uint8Array(segBuf));
+              offset = end;
+            }
+            // Concatenate all parts
+            const merged = new Uint8Array(sizeBytes);
+            let pos = 0;
+            for (const part of parts) {
+              merged.set(part, pos);
+              pos += part.length;
+            }
+            videoBytes = merged as Uint8Array<ArrayBuffer>;
+          } else {
+            videoBytes = new Uint8Array(
+              (await params.videoFile.arrayBuffer()) as ArrayBuffer,
+            );
+          }
         } catch (memErr: unknown) {
           const msg =
             memErr instanceof Error ? memErr.message.toLowerCase() : "";
@@ -352,14 +465,22 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           thumbBlob = ExternalBlob.fromBytes(BLANK_JPEG);
         }
 
-        // ── Upload ───────────────────────────────────────────────────
-        await actor.uploadVideo(
-          id,
-          params.title,
-          videoBlob,
-          thumbBlob,
-          params.description ?? "",
+        // ── Upload (with exponential-backoff retry) ───────────────────
+        await withRetry(
+          () =>
+            actor.uploadVideo(
+              id,
+              params.title,
+              videoBlob,
+              thumbBlob,
+              params.description ?? "",
+            ),
+          5,
+          1000,
         );
+
+        // Allow GC to collect video bytes now that upload is done
+        videoBytes = null;
 
         setProgress(97);
         setUploadSpeed("");
@@ -372,6 +493,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         setChunkIndex(estimatedChunks);
         await actor.updateVideoStatus(id, "ready");
         setStatus("ready");
+        setIsResuming(false);
 
         // Background quality simulation (non-blocking)
         const bgId = id;
@@ -420,6 +542,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         setJustUploadedVideoId(id);
         setPage("home");
       } catch (err: unknown) {
+        // Ensure video bytes are released even on error
+        videoBytes = null;
+
         const raw = err instanceof Error ? err.message : String(err);
         const msg = raw.toLowerCase();
         let userMsg: string;
@@ -515,8 +640,6 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     fingerprintRef.current = null;
   }, []);
 
-  const isActive = status === "uploading" || status === "processing";
-
   return (
     <UploadContext.Provider
       value={{
@@ -533,6 +656,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         uploadSpeed,
         timeRemaining,
         isResuming,
+        isOffline,
         processingStage,
         startUpload,
         retry,

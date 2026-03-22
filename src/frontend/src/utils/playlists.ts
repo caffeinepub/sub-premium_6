@@ -1,19 +1,30 @@
 const KEY = "sub_playlists";
 const WATCH_LATER_ID = "watch_later";
 
+export type PlaylistPrivacy = "public" | "private";
+
 export interface Playlist {
   id: string;
-  name: string;
-  videoIds: string[];
+  name: string; // keep for backward compat
+  title: string; // new canonical field
+  videoIds: string[]; // newest first (prepend)
+  privacy: PlaylistPrivacy;
   createdAt: number;
+  updatedAt: number;
 }
 
 function ensureWatchLater(playlists: Playlist[]): Playlist[] {
   if (!playlists.find((p) => p.id === WATCH_LATER_ID)) {
-    return [
-      { id: WATCH_LATER_ID, name: "Watch Later", videoIds: [], createdAt: 0 },
-      ...playlists,
-    ];
+    const wl: Playlist = {
+      id: WATCH_LATER_ID,
+      name: "Watch Later",
+      title: "Watch Later",
+      videoIds: [],
+      privacy: "private",
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    return [wl, ...playlists];
   }
   return playlists;
 }
@@ -21,7 +32,13 @@ function ensureWatchLater(playlists: Playlist[]): Playlist[] {
 export function getPlaylists(): Playlist[] {
   try {
     const data = JSON.parse(localStorage.getItem(KEY) ?? "[]") as Playlist[];
-    return ensureWatchLater(data);
+    const migrated = data.map((p) => ({
+      ...p,
+      title: p.title || p.name || "Untitled",
+      privacy: p.privacy || ("public" as PlaylistPrivacy),
+      updatedAt: p.updatedAt || p.createdAt || 0,
+    }));
+    return ensureWatchLater(migrated);
   } catch {
     return ensureWatchLater([]);
   }
@@ -31,31 +48,44 @@ function savePlaylists(playlists: Playlist[]): void {
   localStorage.setItem(KEY, JSON.stringify(playlists));
 }
 
-export function createPlaylist(name: string): Playlist {
+export function createPlaylist(
+  title: string,
+  privacy: PlaylistPrivacy = "public",
+): Playlist {
   const playlists = getPlaylists();
+  const now = Date.now();
   const newPlaylist: Playlist = {
-    id: `pl_${Date.now()}`,
-    name,
+    id: `pl_${now}`,
+    name: title,
+    title,
     videoIds: [],
-    createdAt: Date.now(),
+    privacy,
+    createdAt: now,
+    updatedAt: now,
   };
   savePlaylists([...playlists, newPlaylist]);
   return newPlaylist;
 }
 
 export function deletePlaylist(id: string): void {
-  if (id === WATCH_LATER_ID) return; // cannot delete Watch Later
-  const playlists = getPlaylists().filter((p) => p.id !== id);
-  savePlaylists(playlists);
+  if (id === WATCH_LATER_ID) return;
+  savePlaylists(getPlaylists().filter((p) => p.id !== id));
 }
 
-export function addVideoToPlaylist(playlistId: string, videoId: string): void {
-  const playlists = getPlaylists().map((p) =>
-    p.id === playlistId && !p.videoIds.includes(videoId)
-      ? { ...p, videoIds: [...p.videoIds, videoId] }
-      : p,
-  );
-  savePlaylists(playlists);
+/** Returns true if added, false if already in playlist */
+export function addVideoToPlaylist(
+  playlistId: string,
+  videoId: string,
+): boolean {
+  let added = false;
+  const playlists = getPlaylists().map((p) => {
+    if (p.id !== playlistId) return p;
+    if (p.videoIds.includes(videoId)) return p; // duplicate, skip
+    added = true;
+    return { ...p, videoIds: [videoId, ...p.videoIds], updatedAt: Date.now() };
+  });
+  if (added) savePlaylists(playlists);
+  return added;
 }
 
 export function removeVideoFromPlaylist(
@@ -64,7 +94,11 @@ export function removeVideoFromPlaylist(
 ): void {
   const playlists = getPlaylists().map((p) =>
     p.id === playlistId
-      ? { ...p, videoIds: p.videoIds.filter((id) => id !== videoId) }
+      ? {
+          ...p,
+          videoIds: p.videoIds.filter((id) => id !== videoId),
+          updatedAt: Date.now(),
+        }
       : p,
   );
   savePlaylists(playlists);
@@ -74,6 +108,11 @@ export function isVideoInPlaylist(
   playlistId: string,
   videoId: string,
 ): boolean {
-  const playlist = getPlaylists().find((p) => p.id === playlistId);
-  return !!playlist?.videoIds.includes(videoId);
+  return !!getPlaylists()
+    .find((p) => p.id === playlistId)
+    ?.videoIds.includes(videoId);
+}
+
+export function isVideoInAnyPlaylist(videoId: string): boolean {
+  return getPlaylists().some((p) => p.videoIds.includes(videoId));
 }

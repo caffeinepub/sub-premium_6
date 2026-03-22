@@ -593,7 +593,9 @@ actor {
       case (null) { [] };
       case (?history) { history };
     };
-    watchHistory.add(caller, [newView].concat(existingHistory));
+    // Remove any existing entry with the same videoId (dedup), then prepend new entry
+    let deduped = existingHistory.filter(func(v : VideoView) : Bool { v.videoId != videoId });
+    watchHistory.add(caller, [newView].concat(deduped));
   };
 
   public query ({ caller }) func getWatchHistory() : async [VideoView] {
