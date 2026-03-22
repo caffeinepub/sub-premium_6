@@ -8,6 +8,7 @@ import { VideoCard } from "../components/VideoCard";
 import { useApp } from "../context/AppContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { useListVideos, useSubscriptions } from "../hooks/useQueries";
+import { useT } from "../i18n";
 import {
   type PlaylistPrivacy,
   createPlaylist,
@@ -29,13 +30,6 @@ interface HomePageProps {
   searchTerm: string;
 }
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "forYou", label: "FOR YOU" },
-  { id: "trending", label: "TRENDING" },
-  { id: "new", label: "NEW" },
-  { id: "subscriptions", label: "SUBSCRIPTIONS" },
-];
-
 const SKELETON_KEYS = ["sk0", "sk1", "sk2", "sk3", "sk4", "sk5"];
 
 const NOW_MS = Date.now();
@@ -46,7 +40,7 @@ function isNewUpload(uploadTime: bigint): boolean {
   return NOW_MS - ms < HOURS_48;
 }
 
-// ── Section: horizontal scroll row ──────────────────────────────────────────
+// ── Section: horizontal scroll row ───────────────────────────────────────────
 function HorizontalRow({
   title,
   videos,
@@ -60,6 +54,7 @@ function HorizontalRow({
   showProgress?: boolean;
   onViewMore?: () => void;
 }) {
+  const t = useT();
   if (videos.length === 0) return null;
   return (
     <section className="mb-5">
@@ -90,7 +85,7 @@ function HorizontalRow({
             className="flex-shrink-0 w-20 h-full min-h-[120px] flex flex-col items-center justify-center gap-1 text-orange text-xs font-semibold bg-surface2/60 rounded-xl border border-border/30"
           >
             <span className="text-lg">⋯</span>
-            <span>View more</span>
+            <span>{t("home.viewMore")}</span>
           </button>
         )}
       </div>
@@ -98,7 +93,7 @@ function HorizontalRow({
   );
 }
 
-// ── Section: 2-col grid ───────────────────────────────────────────────────────
+// ── Section: 2-col grid ──────────────────────────────────────────────────
 function GridSection({
   title,
   videos,
@@ -110,6 +105,7 @@ function GridSection({
   onVideoClick: (v: Video) => void;
   showNewBadge?: boolean;
 }) {
+  const t = useT();
   if (videos.length === 0) return null;
   return (
     <section className="mb-5 px-3">
@@ -119,7 +115,7 @@ function GridSection({
           <div key={video.id} className="relative">
             {showNewBadge && isNewUpload(video.uploadTime) && (
               <span className="absolute top-1 left-1 z-10 bg-orange text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
-                NEW
+                {t("home.new")}
               </span>
             )}
             <VideoCard
@@ -134,7 +130,7 @@ function GridSection({
   );
 }
 
-// ── Playlists Row ─────────────────────────────────────────────────────────────
+// ── Playlists Row ─────────────────────────────────────────────────────────────────
 function PlaylistsRow() {
   const { setPage, setSelectedPlaylistId } = useApp();
   const [playlists, setPlaylists] = useState(() => getPlaylists());
@@ -142,8 +138,8 @@ function PlaylistsRow() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newPrivacy, setNewPrivacy] = useState<PlaylistPrivacy>("public");
-  // For AddToPlaylistModal (create-only mode reuse: just open empty)
   const [addModalVideoId, setAddModalVideoId] = useState<string | null>(null);
+  const t = useT();
 
   const videoMap = new Map(allVideos.map((v) => [v.id, v]));
   const preview = playlists.slice(0, 10);
@@ -163,7 +159,9 @@ function PlaylistsRow() {
       <div className="flex items-center justify-between px-3 mb-2">
         <div className="flex items-center gap-1.5">
           <ListVideo size={14} className="text-orange" />
-          <h2 className="text-sm font-semibold text-foreground">Playlists</h2>
+          <h2 className="text-sm font-semibold text-foreground">
+            {t("home.playlists")}
+          </h2>
         </div>
         {hasMore && (
           <button
@@ -172,7 +170,7 @@ function PlaylistsRow() {
             onClick={() => setPage("menu")}
             className="text-xs text-orange font-medium hover:text-orange/80 transition-colors"
           >
-            View all
+            {t("home.viewMore")}
           </button>
         )}
       </div>
@@ -238,7 +236,7 @@ function PlaylistsRow() {
             className="flex-shrink-0 w-20 h-20 flex flex-col items-center justify-center gap-1 text-orange text-xs font-semibold bg-surface2/60 rounded-xl border border-border/30"
           >
             <span className="text-lg">⋯</span>
-            <span>View more</span>
+            <span>{t("home.viewMore")}</span>
           </button>
         )}
       </div>
@@ -257,7 +255,7 @@ function PlaylistsRow() {
             className="fixed bottom-0 left-0 right-0 z-50 bg-[#1a1a1a] rounded-t-2xl px-4 py-5 max-w-[430px] mx-auto border-t border-white/10"
           >
             <p className="text-sm font-semibold text-white mb-4">
-              Create Playlist
+              {t("playlist.create")}
             </p>
             <Input
               data-ocid="home.input"
@@ -305,7 +303,7 @@ function PlaylistsRow() {
                 }}
                 className="flex-1 py-2 rounded-xl bg-white/10 text-white/70 text-sm font-medium hover:bg-white/15 transition-colors"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -314,7 +312,7 @@ function PlaylistsRow() {
                 disabled={!newTitle.trim()}
                 className="flex-1 py-2 rounded-xl bg-orange text-white text-sm font-semibold disabled:opacity-40 transition-colors"
               >
-                Create
+                {t("playlist.create")}
               </button>
             </div>
           </div>
@@ -345,6 +343,14 @@ export function HomePage({ searchTerm }: HomePageProps) {
   const [recTick, setRecTick] = useState(0);
   const tickRef = useRef(recTick);
   tickRef.current = recTick;
+  const t = useT();
+
+  const TABS: { id: Tab; label: string }[] = [
+    { id: "forYou", label: t("home.forYou") },
+    { id: "trending", label: t("home.trending") },
+    { id: "new", label: t("home.new") },
+    { id: "subscriptions", label: t("home.subscriptions") },
+  ];
 
   useEffect(() => {
     clearTimeout(debounceTimer);
@@ -353,7 +359,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
   }, [searchTerm]);
 
   useEffect(() => {
-    const onFocus = () => setRecTick((t) => t + 1);
+    const onFocus = () => setRecTick((tick) => tick + 1);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, []);
@@ -484,7 +490,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
             ))}
           </div>
         ) : debouncedSearch ? (
-          // ── Search results ──────────────────────────────────────────────
+          // ── Search results ──────────────────────────────────────────────────────────
           <div className="px-3">
             <p className="text-xs text-muted-foreground mb-3">
               {videos.length} result{videos.length !== 1 ? "s" : ""} for &ldquo;
@@ -529,7 +535,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
               </svg>
             </div>
             <p className="text-muted-foreground text-sm">
-              No videos yet. Be the first to upload!
+              {t("video.noVideos")}. Be the first to upload!
             </p>
           </div>
         ) : activeTab === "forYou" ? (
@@ -537,7 +543,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
             {/* 1. Continue Watching */}
             {continueWatchingVideos.length > 0 && (
               <HorizontalRow
-                title="Continue Watching"
+                title={t("home.continueWatching")}
                 videos={continueWatchingVideos}
                 onVideoClick={handleVideoClick}
                 showProgress
@@ -555,7 +561,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
             {/* 3. Subscriptions Row */}
             {identity && subscribedVideos.length > 0 && (
               <HorizontalRow
-                title="Subscriptions"
+                title={t("home.subscriptions")}
                 videos={subscribedVideos.slice(0, 10)}
                 onVideoClick={handleVideoClick}
               />
@@ -566,7 +572,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
               <section className="mb-5">
                 <div className="flex items-center justify-between px-3 mb-2">
                   <h2 className="text-sm font-semibold text-foreground">
-                    Your Videos
+                    {t("home.yourVideos")}
                   </h2>
                   <button
                     type="button"
@@ -574,7 +580,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
                     onClick={() => setPage("menu")}
                     className="text-xs text-orange font-medium hover:text-orange/80 transition-colors"
                   >
-                    View all
+                    {t("home.viewMore")}
                   </button>
                 </div>
                 <div className="flex gap-3 overflow-x-auto px-3 pb-2 no-scrollbar">
@@ -594,7 +600,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
             {/* 5. Liked Videos */}
             {likedVideos.length > 0 && (
               <HorizontalRow
-                title="Liked Videos"
+                title={t("home.likedVideos")}
                 videos={likedVideos}
                 onVideoClick={handleVideoClick}
               />
@@ -602,14 +608,14 @@ export function HomePage({ searchTerm }: HomePageProps) {
 
             {/* 6. Recommended */}
             <GridSection
-              title="Recommended for You"
+              title={t("home.recommended")}
               videos={recommendedVideos}
               onVideoClick={handleVideoClick}
             />
 
             {/* 6. Trending Now */}
             <HorizontalRow
-              title="Trending Now"
+              title={t("home.trending")}
               videos={trendingVideos}
               onVideoClick={handleVideoClick}
             />
@@ -617,7 +623,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
             {/* 7. Discover New */}
             {discoverVideos.length > 0 && (
               <GridSection
-                title="Discover New"
+                title={t("home.new")}
                 videos={discoverVideos}
                 onVideoClick={handleVideoClick}
               />
@@ -660,7 +666,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
             ))}
           </div>
         ) : (
-          // ── SUBSCRIPTIONS ───────────────────────────────────────────────
+          // ── SUBSCRIPTIONS ────────────────────────────────────────────────────────────
           <div className="px-3">
             {subscriptions.length === 0 ? (
               <div
@@ -686,7 +692,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
               </div>
             ) : (
               <GridSection
-                title="From Subscriptions"
+                title={t("home.subscriptions")}
                 videos={subscribedVideos}
                 onVideoClick={handleVideoClick}
                 showNewBadge

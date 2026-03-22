@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { useApp } from "../context/AppContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { useSettings, useUpdateSettings } from "../hooks/useQueries";
+import { SUPPORTED_LANGUAGES, useI18n } from "../i18n";
 import {
   formatBytesAsMB,
   getCacheStorageEstimate,
@@ -34,16 +35,15 @@ export function SettingsSheet() {
   const updateSettings = useUpdateSettings();
   const { clear, identity } = useInternetIdentity();
   const qc = useQueryClient();
+  const { language, setLanguage, subtitleLang, setSubtitleLang, t } = useI18n();
 
   const [darkMode, setDarkMode] = useState(true);
-  const [language, setLanguage] = useState("en");
   const [storageOpen, setStorageOpen] = useState(false);
   const [cacheEstimate, setCacheEstimate] = useState<string | null>(null);
 
   useEffect(() => {
     if (settings) {
       setDarkMode(settings.darkMode);
-      setLanguage(settings.language);
     }
   }, [settings]);
 
@@ -58,22 +58,22 @@ export function SettingsSheet() {
   const handleSave = async () => {
     try {
       await updateSettings.mutateAsync({ darkMode, language });
-      toast.success("Settings saved");
+      toast.success(t("settings.save"));
     } catch {
-      toast.error("Failed to save settings");
+      toast.error(t("common.error"));
     }
   };
 
   const handleClearCache = () => {
     qc.clear();
-    toast.success("Cache cleared");
+    toast.success(t("settings.clearCache"));
   };
 
   const handleLogout = async () => {
     await clear();
     qc.clear();
     setSettingsOpen(false);
-    toast.success("Logged out");
+    toast.success(t("settings.logout"));
   };
 
   return (
@@ -85,17 +85,19 @@ export function SettingsSheet() {
           className="bg-popover border-border w-80 p-0"
         >
           <SheetHeader className="px-5 py-4 border-b border-border">
-            <SheetTitle className="text-base font-bold">Settings</SheetTitle>
+            <SheetTitle className="text-base font-bold">
+              {t("settings.title")}
+            </SheetTitle>
           </SheetHeader>
 
           <div className="overflow-y-auto h-full pb-20">
             {/* Display */}
             <div className="px-5 py-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                Display
+                {t("settings.display")}
               </p>
               <div className="flex items-center justify-between">
-                <Label className="text-sm">Dark Mode</Label>
+                <Label className="text-sm">{t("settings.darkMode")}</Label>
                 <Switch
                   data-ocid="settings.switch"
                   checked={darkMode}
@@ -107,29 +109,56 @@ export function SettingsSheet() {
 
             <Separator className="bg-border/60" />
 
-            {/* Language */}
+            {/* App Language */}
             <div className="px-5 py-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                Audio & Language
+                {t("settings.audioLanguage")}
               </p>
-              <Select value={language} onValueChange={setLanguage}>
-                <SelectTrigger
-                  data-ocid="settings.select"
-                  className="bg-surface2 border-border"
-                >
-                  <SelectValue placeholder="Language" />
-                </SelectTrigger>
-                <SelectContent className="bg-popover border-border">
-                  <SelectItem value="en">English</SelectItem>
-                  <SelectItem value="es">Español</SelectItem>
-                  <SelectItem value="fr">Français</SelectItem>
-                  <SelectItem value="de">Deutsch</SelectItem>
-                  <SelectItem value="ja">日本語</SelectItem>
-                  <SelectItem value="zh">中文</SelectItem>
-                  <SelectItem value="ar">العربية</SelectItem>
-                  <SelectItem value="pt">Português</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">
+                    {t("settings.language")}
+                  </Label>
+                  <Select value={language} onValueChange={setLanguage}>
+                    <SelectTrigger
+                      data-ocid="settings.select"
+                      className="bg-surface2 border-border"
+                    >
+                      <SelectValue placeholder={t("settings.language")} />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover border-border">
+                      {SUPPORTED_LANGUAGES.map((lang) => (
+                        <SelectItem key={lang.code} value={lang.code}>
+                          {lang.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">
+                    {t("settings.subtitleLanguage")}
+                  </Label>
+                  <Select value={subtitleLang} onValueChange={setSubtitleLang}>
+                    <SelectTrigger
+                      data-ocid="settings.select"
+                      className="bg-surface2 border-border"
+                    >
+                      <SelectValue
+                        placeholder={t("settings.subtitleLanguage")}
+                      />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover border-border">
+                      {SUPPORTED_LANGUAGES.map((lang) => (
+                        <SelectItem key={lang.code} value={lang.code}>
+                          {lang.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
 
             <Separator className="bg-border/60" />
@@ -137,7 +166,7 @@ export function SettingsSheet() {
             {/* Storage */}
             <div className="px-5 py-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                Storage
+                {t("settings.storage")}
               </p>
               <button
                 type="button"
@@ -147,7 +176,9 @@ export function SettingsSheet() {
               >
                 <div className="flex items-center gap-2">
                   <HardDrive size={16} className="text-orange-400" />
-                  <span className="text-sm text-white">Manage Storage</span>
+                  <span className="text-sm text-white">
+                    {t("settings.manageStorage")}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   {cacheEstimate && (
@@ -165,7 +196,7 @@ export function SettingsSheet() {
             {/* Privacy */}
             <div className="px-5 py-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                Privacy
+                {t("settings.privacy")}
               </p>
               <Button
                 data-ocid="settings.secondary_button"
@@ -174,7 +205,7 @@ export function SettingsSheet() {
                 className="w-full border-border bg-surface2 text-sm"
                 onClick={handleClearCache}
               >
-                <Trash2 size={14} className="mr-2" /> Clear Cache
+                <Trash2 size={14} className="mr-2" /> {t("settings.clearCache")}
               </Button>
             </div>
 
@@ -183,10 +214,12 @@ export function SettingsSheet() {
             {/* App Info */}
             <div className="px-5 py-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                App Info
+                {t("settings.appInfo")}
               </p>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Version</span>
+                <span className="text-sm text-muted-foreground">
+                  {t("settings.version")}
+                </span>
                 <span className="text-sm font-mono text-orange">1.0.0</span>
               </div>
             </div>
@@ -204,10 +237,10 @@ export function SettingsSheet() {
                     {updateSettings.isPending ? (
                       <>
                         <Loader2 size={14} className="mr-2 animate-spin" />{" "}
-                        Saving...
+                        {t("settings.saving")}
                       </>
                     ) : (
-                      "Save Settings"
+                      t("settings.save")
                     )}
                   </Button>
                   <Button
@@ -216,7 +249,7 @@ export function SettingsSheet() {
                     className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
                     onClick={handleLogout}
                   >
-                    Logout
+                    {t("settings.logout")}
                   </Button>
                 </div>
               </>

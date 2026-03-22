@@ -2,13 +2,7 @@ import { cn } from "@/lib/utils";
 import { History, Home, Menu, Upload } from "lucide-react";
 import { type Page, useApp } from "../context/AppContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
-
-const TABS = [
-  { id: "home" as Page, label: "Home", Icon: Home },
-  { id: "upload" as Page, label: "Upload", Icon: Upload },
-  { id: "history" as Page, label: "History", Icon: History },
-  { id: "menu" as Page, label: "Menu", Icon: Menu },
-] as const;
+import { useT } from "../i18n";
 
 export function BottomNav() {
   const {
@@ -20,6 +14,14 @@ export function BottomNav() {
     setMiniPlayerVideo,
   } = useApp();
   const { identity } = useInternetIdentity();
+  const t = useT();
+
+  const TABS = [
+    { id: "home" as Page, label: t("nav.home"), Icon: Home },
+    { id: "upload" as Page, label: t("nav.upload"), Icon: Upload },
+    { id: "history" as Page, label: t("nav.history"), Icon: History },
+    { id: "menu" as Page, label: t("nav.menu"), Icon: Menu },
+  ] as const;
 
   const navigate = (target: Page) => {
     if ((target === "upload" || target === "menu") && !identity) {

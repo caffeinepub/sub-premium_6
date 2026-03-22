@@ -14,6 +14,7 @@ import { SettingsSheet } from "./components/SettingsSheet";
 import { AppProvider, useApp } from "./context/AppContext";
 import { UploadQueueProvider } from "./context/UploadQueueContext";
 import { InternetIdentityProvider } from "./hooks/useInternetIdentity";
+import { I18nProvider, useI18n } from "./i18n";
 import { ChannelPage } from "./pages/ChannelPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { HomePage } from "./pages/HomePage";
@@ -35,6 +36,7 @@ const queryClient = new QueryClient({
 
 function AppContent() {
   const { page, setSelectedVideo, setPage } = useApp();
+  const { dir, t } = useI18n();
   const [searchTerm, setSearchTerm] = useState("");
   const [storageBannerVisible, setStorageBannerVisible] = useState(false);
   const [manageStorageOpen, setManageStorageOpen] = useState(false);
@@ -57,7 +59,10 @@ function AppContent() {
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] max-w-[430px] mx-auto relative bg-background">
+    <div
+      dir={dir}
+      className="flex flex-col h-[100dvh] max-w-[430px] mx-auto relative bg-background"
+    >
       <Header
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
@@ -67,7 +72,7 @@ function AppContent() {
       {storageBannerVisible && (
         <div className="flex items-center gap-2 px-3 py-2 bg-orange-500/15 border-b border-orange-500/25 flex-shrink-0">
           <span className="text-xs text-orange-300 flex-1">
-            Storage is getting full — free up space
+            {t("storage.gettingFull")}
           </span>
           <button
             type="button"
@@ -75,7 +80,7 @@ function AppContent() {
             className="text-xs font-semibold text-orange-400 hover:text-orange-300 underline underline-offset-2 flex-shrink-0"
             data-ocid="home.primary_button"
           >
-            Manage
+            {t("storage.manage")}
           </button>
           <button
             type="button"
@@ -162,14 +167,16 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <InternetIdentityProvider>
         <AppProvider>
-          <UploadQueueProvider>
-            {showIntro ? (
-              <IntroScreen onComplete={handleIntroComplete} />
-            ) : (
-              <AppContent />
-            )}
-            <Toaster />
-          </UploadQueueProvider>
+          <I18nProvider>
+            <UploadQueueProvider>
+              {showIntro ? (
+                <IntroScreen onComplete={handleIntroComplete} />
+              ) : (
+                <AppContent />
+              )}
+              <Toaster />
+            </UploadQueueProvider>
+          </I18nProvider>
         </AppProvider>
       </InternetIdentityProvider>
     </QueryClientProvider>

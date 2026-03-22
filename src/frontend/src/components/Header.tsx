@@ -15,6 +15,7 @@ import type { Video } from "../backend";
 import { useApp } from "../context/AppContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { useListVideos, useUserProfile } from "../hooks/useQueries";
+import { useT } from "../i18n";
 import { getUnreadCount } from "../utils/notifications";
 import { NotificationPanel } from "./NotificationPanel";
 
@@ -43,9 +44,10 @@ export function Header({
   const { data: allVideos = [] } = useListVideos();
   const [searchFocused, setSearchFocused] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const t = useT();
 
   const isAuthenticated = !!identity;
-  const unreadCount = notifTick >= 0 ? getUnreadCount() : 0; // notifTick forces re-read
+  const unreadCount = notifTick >= 0 ? getUnreadCount() : 0;
 
   const handleLogout = async () => {
     await clear();
@@ -57,7 +59,6 @@ export function Header({
     ? profile.displayName.slice(0, 2).toUpperCase()
     : "SP";
 
-  // Search suggestions: up to 6 matches on title or creatorName
   const suggestions =
     searchFocused && searchTerm.length >= 2
       ? allVideos
@@ -72,7 +73,6 @@ export function Header({
       : [];
 
   const handleSuggestionMouseDown = (video: Video) => {
-    // mousedown fires before blur so we can navigate before search loses focus
     onSearchChange(video.title);
     setSearchFocused(false);
     onVideoSelect?.(video);
@@ -180,7 +180,7 @@ export function Header({
                   onClick={handleLogout}
                   className="text-destructive focus:text-destructive"
                 >
-                  <LogOut size={14} className="mr-2" /> Logout
+                  <LogOut size={14} className="mr-2" /> {t("settings.logout")}
                 </DropdownMenuItem>
               </>
             ) : (
@@ -213,7 +213,7 @@ export function Header({
           ref={searchRef}
           data-ocid="home.search_input"
           type="search"
-          placeholder="Search videos, channels, and creators"
+          placeholder={t("search.placeholder")}
           value={searchTerm}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
             onSearchChange(e.target.value)

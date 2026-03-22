@@ -30,6 +30,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Video } from "../backend";
 import { AddToPlaylistModal } from "../components/AddToPlaylistModal";
+import { type CommentData, CommentItem } from "../components/CommentItem";
 import { VideoCard } from "../components/VideoCard";
 import { useApp } from "../context/AppContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
@@ -39,6 +40,7 @@ import {
   useListVideos,
   useUpdateWatchHistory,
 } from "../hooks/useQueries";
+import { useI18n } from "../i18n";
 import { checkMilestone, formatMilestone } from "../utils/milestones";
 import { addNotification } from "../utils/notifications";
 import { isVideoInAnyPlaylist } from "../utils/playlists";
@@ -97,6 +99,7 @@ export function VideoPlayerPage() {
   const updateHistory = useUpdateWatchHistory();
   const { data: allVideos } = useListVideos();
   const hasTracked = useRef(false);
+  const { language: userLang, t } = useI18n();
   const playerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -123,9 +126,7 @@ export function VideoPlayerPage() {
   const [likeCount, setLikeCount] = useState(0);
   const [isSticky, setIsSticky] = useState(false);
   const [commentText, setCommentText] = useState("");
-  const [comments, setComments] = useState<{ text: string; time: string }[]>(
-    [],
-  );
+  const [comments, setComments] = useState<CommentData[]>([]);
   const [showDesc, setShowDesc] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [saveSheetOpen, setSaveSheetOpen] = useState(false);
@@ -152,7 +153,9 @@ export function VideoPlayerPage() {
   });
   const [selectedLang, setSelectedLang] = useState(() => {
     try {
-      return localStorage.getItem("sp_caption_lang") || "en";
+      const subtitlePref = localStorage.getItem("subtitle_lang");
+      const captionPref = localStorage.getItem("sp_caption_lang");
+      return captionPref || subtitlePref || "en";
     } catch {
       return "en";
     }
@@ -242,6 +245,7 @@ export function VideoPlayerPage() {
     setSelectedLang(lang);
     try {
       localStorage.setItem("sp_caption_lang", lang);
+      localStorage.setItem("subtitle_lang", lang);
     } catch {}
     setLangMenuOpen(false);
     if (!ccEnabled) {
@@ -1225,27 +1229,17 @@ export function VideoPlayerPage() {
 
           <div className="space-y-3">
             {comments.map((c, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: static list
-              <div key={i} className="flex gap-2">
-                <Avatar className="w-7 h-7 flex-shrink-0">
-                  <AvatarFallback className="bg-accent/20 text-accent text-[10px] font-bold">
-                    ME
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <span className="text-xs font-semibold text-foreground">
-                    You{" "}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {c.time}
-                  </span>
-                  <p className="text-sm text-foreground mt-0.5">{c.text}</p>
-                </div>
-              </div>
+              <CommentItem
+                // biome-ignore lint/suspicious/noArrayIndexKey: order rarely changes
+                key={i}
+                comment={c}
+                index={i + 1}
+                userLang={userLang}
+              />
             ))}
             {comments.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-4">
-                No comments yet. Be the first!
+                {t("comment.noComments")}
               </p>
             )}
           </div>
@@ -1298,7 +1292,7 @@ export function VideoPlayerPage() {
           onKeyDown={(e) => {
             if (e.key === "Enter" && commentText.trim()) handleComment();
           }}
-          placeholder="Add a comment..."
+          placeholder={t("comment.placeholder")}
           className="flex-1 h-9 rounded-full px-4 text-sm"
           style={{
             backgroundColor: "#1a1a1a",
