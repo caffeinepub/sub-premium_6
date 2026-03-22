@@ -1,8 +1,14 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Bookmark, BookmarkCheck, Clock, Eye } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Bookmark, BookmarkCheck, Clock, Eye, Lock } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { Video } from "../backend";
+import { useApp } from "../context/AppContext";
 import { isVideoInAnyPlaylist } from "../utils/playlists";
+import {
+  formatPremiereCountdown,
+  getPublishTimeMs,
+  isUpcoming,
+} from "../utils/premiereUtils";
 import { AddToPlaylistModal } from "./AddToPlaylistModal";
 
 interface VideoCardProps {
@@ -86,22 +92,55 @@ function useDuration(url: string | undefined): number | null {
   return duration;
 }
 
+/** Live-updating countdown for premiere cards */
+function usePremiereCountdown(publishTimeMs: number | null): string {
+  const [countdown, setCountdown] = useState(() =>
+    publishTimeMs ? formatPremiereCountdown(publishTimeMs) : "",
+  );
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!publishTimeMs) return;
+    const tick = () => setCountdown(formatPremiereCountdown(publishTimeMs));
+    tick();
+    timerRef.current = setInterval(tick, 1000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [publishTimeMs]);
+
+  return countdown;
+}
+
 export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
+  const { setPage, setSelectedVideo } = useApp();
   const thumbUrl = video.thumbnailBlob?.getDirectURL?.();
   const videoUrl = video.videoBlob?.getDirectURL?.();
   const isProcessing =
     video.status === "processing" || video.status === "uploading";
+  const isScheduled = video.status === "scheduled";
+  const upcoming = isUpcoming(video);
+  const publishTimeMs = upcoming ? getPublishTimeMs(video) : null;
   const qualityLevel = video.qualityLevel || "";
   const duration = useDuration(videoUrl);
+  const premiereCountdown = usePremiereCountdown(publishTimeMs);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [inPlaylist, setInPlaylist] = useState(() =>
     isVideoInAnyPlaylist(video.id),
   );
 
-  // Refresh inPlaylist when modal closes
   const handleModalClose = () => {
     setSaveModalOpen(false);
     setInPlaylist(isVideoInAnyPlaylist(video.id));
+  };
+
+  const handleClick = () => {
+    if (upcoming) {
+      setSelectedVideo(video);
+      setPage("premiere-preview");
+    } else {
+      onClick();
+    }
   };
 
   return (
@@ -115,14 +154,20 @@ export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
         <button
           type="button"
           className="absolute inset-0 w-full h-full"
-          onClick={onClick}
-          aria-label={`Play ${video.title}`}
+          onClick={handleClick}
+          aria-label={
+            upcoming
+              ? `Upcoming premiere: ${video.title}`
+              : `Play ${video.title}`
+          }
         >
           {thumbUrl ? (
             <img
               src={thumbUrl}
               alt={video.title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              className={`w-full h-full object-cover transition-transform duration-300 ${
+                upcoming ? "opacity-60" : "group-hover:scale-105"
+              }`}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-surface2 to-accent/30">
@@ -142,21 +187,54 @@ export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
           )}
         </button>
 
+        {/* Duration overlay (always, unless upcoming hides it) */}
         {duration !== null && (
           <div className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono pointer-events-none">
             {formatDuration(duration)}
           </div>
         )}
+
+        {/* ── UPCOMING overlay ── */}
+        {upcoming && (
+          <>
+            {/* Semi-transparent dark overlay */}
+            <div className="absolute inset-0 bg-black/50 pointer-events-none" />
+            {/* UPCOMING badge top-left */}
+            <div className="absolute top-1.5 left-1.5 pointer-events-none">
+              <span className="px-2 py-0.5 rounded-full bg-orange text-white text-[9px] font-black uppercase tracking-widest">
+                Upcoming
+              </span>
+            </div>
+            {/* Lock icon center */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-1">
+              <div className="w-8 h-8 rounded-full bg-black/60 border border-white/20 flex items-center justify-center">
+                <Lock size={14} className="text-white/80" />
+              </div>
+              {premiereCountdown && (
+                <span className="text-white text-[10px] font-semibold bg-black/70 px-2 py-0.5 rounded-full">
+                  {premiereCountdown}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+
         {/* Processing overlay badge */}
-        {isProcessing && (
+        {isProcessing && !upcoming && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center pointer-events-none">
             <span className="bg-black/80 text-white text-[10px] px-2 py-1 rounded-full font-medium animate-pulse">
               Processing...
             </span>
           </div>
         )}
+        {/* Scheduled badge (non-upcoming, e.g. own video that's queued but publishTime not set) */}
+        {isScheduled && !upcoming && (
+          <div className="absolute top-1.5 left-1.5 bg-orange-500/90 text-white text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide pointer-events-none">
+            Scheduled
+          </div>
+        )}
         {/* Quality chip */}
-        {!isProcessing && qualityLevel && (
+        {!isProcessing && !isScheduled && qualityLevel && (
           <div className="absolute bottom-1 left-1 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono font-bold pointer-events-none">
             {qualityLevel}
           </div>
@@ -171,23 +249,25 @@ export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
           </div>
         )}
 
-        {/* Bookmark / Save button */}
-        <button
-          type="button"
-          data-ocid={`video.edit_button.${index}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            setSaveModalOpen(true);
-          }}
-          className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-black/80 transition-colors"
-          aria-label="Save to playlist"
-        >
-          {inPlaylist ? (
-            <BookmarkCheck size={13} className="text-orange" />
-          ) : (
-            <Bookmark size={13} className="text-white" />
-          )}
-        </button>
+        {/* Bookmark / Save button (hide for upcoming) */}
+        {!upcoming && (
+          <button
+            type="button"
+            data-ocid={`video.edit_button.${index}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSaveModalOpen(true);
+            }}
+            className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center hover:bg-black/80 transition-colors"
+            aria-label="Save to playlist"
+          >
+            {inPlaylist ? (
+              <BookmarkCheck size={13} className="text-orange" />
+            ) : (
+              <Bookmark size={13} className="text-white" />
+            )}
+          </button>
+        )}
       </div>
 
       {/* Info */}
@@ -200,7 +280,7 @@ export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
         <button
           type="button"
           className="flex-1 min-w-0 text-left"
-          onClick={onClick}
+          onClick={handleClick}
         >
           <h3 className="text-sm font-semibold text-foreground line-clamp-2 leading-snug mb-1">
             {video.title}
@@ -208,15 +288,23 @@ export function VideoCard({ video, index, onClick, progress }: VideoCardProps) {
           <p className="text-xs text-muted-foreground truncate">
             {video.creatorName || "Unknown"}
           </p>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-              <Eye size={10} /> {formatViews(video.views)}
-            </span>
-            <span className="text-muted-foreground/50 text-[10px]">•</span>
-            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-              <Clock size={10} /> {timeAgo(video.uploadTime)}
-            </span>
-          </div>
+          {upcoming ? (
+            <div className="flex items-center gap-1 mt-1">
+              <span className="text-[11px] font-semibold text-orange">
+                {premiereCountdown}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 mt-1">
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Eye size={10} /> {formatViews(video.views)}
+              </span>
+              <span className="text-muted-foreground/50 text-[10px]">•</span>
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Clock size={10} /> {timeAgo(video.uploadTime)}
+              </span>
+            </div>
+          )}
         </button>
       </div>
 

@@ -21,6 +21,7 @@ import {
   ArrowLeft,
   BadgeCheck,
   Bookmark,
+  CalendarDays,
   Camera,
   ChevronRight,
   Link,
@@ -326,6 +327,20 @@ export function MenuPage() {
         <div className="flex items-center gap-3">
           <Settings size={17} className="text-orange" />
           <span className="text-sm font-medium">Settings</span>
+        </div>
+        <ChevronRight size={15} className="text-muted-foreground" />
+      </button>
+
+      {/* Scheduled Videos row */}
+      <button
+        type="button"
+        data-ocid="menu.calendar.button"
+        onClick={() => setPage("calendar")}
+        className="w-full flex items-center justify-between px-4 py-3.5 border-b border-border/30 hover:bg-white/5 active:bg-white/5 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <CalendarDays size={17} className="text-orange" />
+          <span className="text-sm font-medium">Scheduled Videos</span>
         </div>
         <ChevronRight size={15} className="text-muted-foreground" />
       </button>

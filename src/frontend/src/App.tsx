@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AnimatePresence } from "motion/react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { IntroScreen } from "./IntroScreen";
 import type { Video } from "./backend";
 import { BottomNav } from "./components/BottomNav";
@@ -14,15 +15,26 @@ import { SettingsSheet } from "./components/SettingsSheet";
 import { AppProvider, useApp } from "./context/AppContext";
 import { UploadQueueProvider } from "./context/UploadQueueContext";
 import { InternetIdentityProvider } from "./hooks/useInternetIdentity";
+import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import { I18nProvider, useI18n } from "./i18n";
+import { CalendarPage } from "./pages/CalendarPage";
 import { ChannelPage } from "./pages/ChannelPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { HomePage } from "./pages/HomePage";
 import { MenuPage } from "./pages/MenuPage";
 import { PlaylistPage } from "./pages/PlaylistPage";
+import { PremierePreviewPage } from "./pages/PremierePreviewPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { UploadPage } from "./pages/UploadPage";
 import { VideoPlayerPage } from "./pages/VideoPlayerPage";
+import {
+  getScheduledVideos,
+  markScheduledVideoNotified,
+} from "./utils/dateTimePrefs";
+import {
+  getPendingReminders,
+  markReminderNotified,
+} from "./utils/reminderUtils";
 import {
   autoCleanupOldEntries,
   getTotalStorageEstimate,
@@ -36,8 +48,9 @@ const queryClient = new QueryClient({
 });
 
 function AppContent() {
-  const { page, setSelectedVideo, setPage } = useApp();
+  const { page, selectedVideo, setSelectedVideo, setPage } = useApp();
   const { dir, t } = useI18n();
+  const { identity } = useInternetIdentity();
   const [searchTerm, setSearchTerm] = useState("");
   const [storageBannerVisible, setStorageBannerVisible] = useState(false);
   const [manageStorageOpen, setManageStorageOpen] = useState(false);
@@ -53,6 +66,43 @@ function AppContent() {
       }
     });
   }, []);
+
+  // Check for scheduled videos that have gone live
+  useEffect(() => {
+    const checkScheduled = () => {
+      const now = Date.now();
+      const scheduled = getScheduledVideos();
+      for (const s of scheduled) {
+        if (!s.notified && s.publishTime <= now) {
+          markScheduledVideoNotified(s.videoId);
+          // Dispatch event so PremierePreviewPage and VideoCards can react
+          window.dispatchEvent(
+            new CustomEvent("videoPublished", {
+              detail: { videoId: s.videoId },
+            }),
+          );
+          // Check if current user has a reminder for this video
+          const userId = identity?.getPrincipal().toString();
+          if (userId) {
+            const reminders = getPendingReminders(userId);
+            const match = reminders.find((r) => r.videoId === s.videoId);
+            if (match) {
+              toast.success(`🔔 "${s.title}" is now live!`, { duration: 6000 });
+              markReminderNotified(userId, s.videoId);
+            } else {
+              toast.success(`🎉 "${s.title}" is now live!`);
+            }
+          } else {
+            toast.success(`🎉 "${s.title}" is now live!`);
+          }
+        }
+      }
+    };
+
+    checkScheduled();
+    const interval = setInterval(checkScheduled, 60_000);
+    return () => clearInterval(interval);
+  }, [identity]);
 
   const handleVideoSelect = (video: Video) => {
     setSelectedVideo(video);
@@ -133,6 +183,16 @@ function AppContent() {
           {page === "channel" && (
             <div key="channel">
               <ChannelPage />
+            </div>
+          )}
+          {page === "calendar" && (
+            <div key="calendar">
+              <CalendarPage />
+            </div>
+          )}
+          {page === "premiere-preview" && selectedVideo && (
+            <div key="premiere-preview">
+              <PremierePreviewPage video={selectedVideo} />
             </div>
           )}
         </AnimatePresence>

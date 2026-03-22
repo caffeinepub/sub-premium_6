@@ -9,7 +9,9 @@ export type Page =
   | "menu"
   | "playlist"
   | "channel"
-  | "settings";
+  | "settings"
+  | "calendar"
+  | "premiere-preview";
 
 interface AppContextValue {
   page: Page;

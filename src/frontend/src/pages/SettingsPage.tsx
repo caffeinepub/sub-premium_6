@@ -41,6 +41,7 @@ import {
   Bell,
   Camera,
   ChevronRight,
+  Clock,
   Globe,
   HelpCircle,
   Loader2,
@@ -61,6 +62,12 @@ import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { useSaveProfile, useUserProfile } from "../hooks/useQueries";
 import { SUPPORTED_LANGUAGES, useI18n } from "../i18n";
+import {
+  COMMON_TIMEZONES,
+  formatAppDateTime,
+  loadDateTimePrefs,
+  saveDateTimePrefs,
+} from "../utils/dateTimePrefs";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -218,6 +225,27 @@ export function SettingsPage() {
   const [dateFormat, setDateFormat] = useState<"A" | "B">(() =>
     getPref<"A" | "B">("pref_date_format", "A"),
   );
+  const [dtTimezoneMode, setDtTimezoneMode] = useState<"auto" | "manual">(
+    () => loadDateTimePrefs().timezoneMode,
+  );
+  const [dtManualTz, setDtManualTz] = useState<string>(
+    () => loadDateTimePrefs().manualTimezone,
+  );
+
+  function saveDtPrefs(
+    overrides: Partial<{
+      timezoneMode: "auto" | "manual";
+      manualTimezone: string;
+      timeFormat: "12h" | "24h";
+      dateFormat: "MDY" | "DMY";
+    }> = {},
+  ) {
+    const current = loadDateTimePrefs();
+    saveDateTimePrefs({
+      ...current,
+      ...overrides,
+    });
+  }
 
   // ── App Preferences ──────────────────────────────────────────────────────
   const [soundFx, setSoundFx] = useState(() =>
@@ -285,11 +313,13 @@ export function SettingsPage() {
   function handleTimeFormat(f: "12h" | "24h") {
     setTimeFormat(f);
     savePref("pref_time_format", f);
+    saveDtPrefs({ timeFormat: f });
   }
 
   function handleDateFormat(f: "A" | "B") {
     setDateFormat(f);
     savePref("pref_date_format", f);
+    saveDtPrefs({ dateFormat: f === "A" ? "MDY" : "DMY" });
   }
 
   function handleLogout() {
@@ -597,15 +627,18 @@ export function SettingsPage() {
             </SelectContent>
           </Select>
         </div>
+
+        {/* ── Date & Time ──────────────────────────────────────────────────── */}
+        <SectionHeader icon={Clock} label="Date & Time" />
         <div className="flex items-center justify-between border-b border-border/30 px-4 py-3.5">
           <p className="text-sm text-foreground">Time Format</p>
           <div className="flex gap-1.5">
             <SegBtn
               active={timeFormat === "12h"}
               onClick={() => handleTimeFormat("12h")}
-              ocid="settings.language.tab"
+              ocid="settings.datetime.tab"
             >
-              12h
+              12h AM/PM
             </SegBtn>
             <SegBtn
               active={timeFormat === "24h"}
@@ -632,15 +665,76 @@ export function SettingsPage() {
             </SegBtn>
           </div>
         </div>
-        <SettingsRow
-          label="Timezone"
-          sublabel="Auto-detect"
-          right={
-            <span className="text-xs text-muted-foreground">
-              Device timezone
+        <div className="flex items-center justify-between border-b border-border/30 px-4 py-3.5">
+          <p className="text-sm text-foreground">Timezone</p>
+          <div className="flex gap-1.5">
+            <SegBtn
+              active={dtTimezoneMode === "auto"}
+              onClick={() => {
+                setDtTimezoneMode("auto");
+                saveDtPrefs({ timezoneMode: "auto" });
+              }}
+              ocid="settings.datetime.toggle"
+            >
+              Auto
+            </SegBtn>
+            <SegBtn
+              active={dtTimezoneMode === "manual"}
+              onClick={() => {
+                setDtTimezoneMode("manual");
+                saveDtPrefs({ timezoneMode: "manual" });
+              }}
+            >
+              Manual
+            </SegBtn>
+          </div>
+        </div>
+        {dtTimezoneMode === "auto" && (
+          <div className="flex items-center justify-between border-b border-border/30 px-4 py-2">
+            <p className="text-xs text-muted-foreground">Detected timezone</p>
+            <span className="text-xs font-mono text-primary">
+              {Intl.DateTimeFormat().resolvedOptions().timeZone}
             </span>
-          }
-        />
+          </div>
+        )}
+        {dtTimezoneMode === "manual" && (
+          <div className="flex items-center justify-between border-b border-border/30 px-4 py-2.5">
+            <p className="text-xs text-muted-foreground mr-3">
+              Select Timezone
+            </p>
+            <Select
+              value={dtManualTz || "UTC"}
+              onValueChange={(v) => {
+                setDtManualTz(v);
+                saveDtPrefs({ timezoneMode: "manual", manualTimezone: v });
+              }}
+            >
+              <SelectTrigger
+                className="w-48 h-8 text-xs bg-background/60 border-border/50"
+                data-ocid="settings.datetime.select"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COMMON_TIMEZONES.map((tz) => (
+                  <SelectItem
+                    key={tz.value}
+                    value={tz.value}
+                    className="text-xs"
+                  >
+                    {tz.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        <div className="flex items-center justify-between border-b border-border/30 px-4 py-2.5">
+          <p className="text-xs text-muted-foreground">Preview</p>
+          <span className="text-xs text-primary font-mono">
+            {formatAppDateTime(new Date(), loadDateTimePrefs())}
+          </span>
+        </div>
 
         {/* ── Privacy & Security ──────────────────────────────────────────── */}
         <SectionHeader icon={Lock} label="Privacy & Security" />

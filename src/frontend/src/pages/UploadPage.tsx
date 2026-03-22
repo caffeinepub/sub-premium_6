@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import {
   AlertTriangle,
   ArrowLeft,
+  CalendarClock,
   FileVideo,
   Image,
   Info,
@@ -18,6 +19,18 @@ import { CaptionManager } from "../components/CaptionManager";
 import { UploadLimitsPanel } from "../components/UploadLimitsPanel";
 import { useApp } from "../context/AppContext";
 import { useUploadQueue } from "../context/UploadQueueContext";
+import { useActor } from "../hooks/useActor";
+import {
+  dateToNanos,
+  formatAppDateTime,
+  loadDateTimePrefs,
+  saveScheduledVideo,
+} from "../utils/dateTimePrefs";
+import {
+  formatPremiereCountdown,
+  formatPremiereDate,
+  formatPremiereDaysLabel,
+} from "../utils/premiereUtils";
 import { getFileFingerprint } from "../utils/uploadDB";
 
 const MAX_BLOCK_MB = 2048; // 2 GB
@@ -59,6 +72,69 @@ function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+interface ScheduleConfirmationCardProps {
+  info: { title: string; publishTime: number };
+  onDismiss: () => void;
+}
+
+function ScheduleConfirmationCard({
+  info,
+  onDismiss,
+}: ScheduleConfirmationCardProps) {
+  const [countdown, setCountdown] = useState(() =>
+    formatPremiereCountdown(info.publishTime),
+  );
+
+  useEffect(() => {
+    const tick = () => setCountdown(formatPremiereCountdown(info.publishTime));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [info.publishTime]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-xl border border-orange/30 bg-orange/8 p-4 space-y-3"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-orange animate-pulse" />
+          <p className="text-sm font-bold text-orange">Video Scheduled</p>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-muted-foreground/60 hover:text-muted-foreground text-lg leading-none"
+          aria-label="Dismiss"
+        >
+          ×
+        </button>
+      </div>
+      <p className="text-xs text-foreground font-semibold line-clamp-1">
+        {info.title}
+      </p>
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <CalendarClock size={12} className="text-orange/70" />
+          <span>{formatPremiereDate(info.publishTime)}</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="text-orange/70">⏱</span>
+          <span>{formatPremiereDaysLabel(info.publishTime)}</span>
+        </div>
+      </div>
+      <div className="rounded-lg bg-orange/10 border border-orange/20 px-3 py-2 flex items-center gap-2">
+        <span className="text-xs font-semibold text-orange">{countdown}</span>
+        <span className="text-xs text-muted-foreground">
+          · No upload progress at release
+        </span>
+      </div>
+    </motion.div>
+  );
+}
+
 export function UploadPage() {
   const { setPage } = useApp();
   const { addJob, hasActive, activeCount, queuedCount } = useUploadQueue();
@@ -71,6 +147,16 @@ export function UploadPage() {
   const [previewDuration, setPreviewDuration] = useState<number | null>(null);
   const [durationError, setDurationError] = useState("");
   const [isDuplicate, setIsDuplicate] = useState(false);
+
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
+  const [scheduleError, setScheduleError] = useState("");
+  const [confirmedSchedule, setConfirmedSchedule] = useState<{
+    title: string;
+    publishTime: number;
+  } | null>(null);
+  const { actor } = useActor();
+  const prefs = loadDateTimePrefs();
 
   const videoInputRef = useRef<HTMLInputElement>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
@@ -136,19 +222,63 @@ export function UploadPage() {
       toast.error(durationError);
       return;
     }
+    if (scheduleEnabled && scheduledAt && scheduledAt <= new Date()) {
+      toast.error("Scheduled time must be in the future.");
+      return;
+    }
 
     const fp = getFileFingerprint(videoFile);
     addRecentFingerprint(fp);
     setIsDuplicate(false);
 
+    const jobDescription = description.trim() || undefined;
     addJob({
       title: title.trim(),
       videoFile,
       thumbnailFile: thumbFile,
-      description: description.trim() || undefined,
+      description: jobDescription,
     });
 
-    toast.success("Added to upload queue!");
+    // Schedule if needed - store locally and mark on backend after upload
+    if (scheduleEnabled && scheduledAt) {
+      const videoId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      // Try to schedule via backend once actor is ready
+      if (actor) {
+        try {
+          const scheduleFn = (actor as unknown as Record<string, unknown>)
+            .scheduleVideo;
+          if (typeof scheduleFn === "function") {
+            scheduleFn
+              .call(actor, videoId, dateToNanos(scheduledAt))
+              .catch(() => {
+                // fallback: just update status
+                actor.updateVideoStatus(videoId, "scheduled").catch(() => {});
+              });
+          }
+        } catch {
+          // ignore
+        }
+      }
+      saveScheduledVideo({
+        videoId,
+        title: title.trim(),
+        publishTime: scheduledAt.getTime(),
+        notified: false,
+      });
+      toast.success(
+        `Video scheduled for ${formatAppDateTime(scheduledAt, prefs)}!`,
+      );
+    } else {
+      toast.success("Added to upload queue!");
+    }
+
+    // If scheduled: save confirmation state before resetting form
+    if (scheduleEnabled && scheduledAt) {
+      setConfirmedSchedule({
+        title: title.trim(),
+        publishTime: scheduledAt.getTime(),
+      });
+    }
 
     // Reset form for next upload
     setTitle("");
@@ -162,6 +292,9 @@ export function UploadPage() {
     }
     setPreviewUrl(null);
     setPreviewDuration(null);
+    setScheduleEnabled(false);
+    setScheduledAt(null);
+    setScheduleError("");
     if (videoInputRef.current) videoInputRef.current.value = "";
     if (thumbInputRef.current) thumbInputRef.current.value = "";
   };
@@ -531,6 +664,106 @@ export function UploadPage() {
             </p>
           </div>
         </motion.div>
+
+        {/* Confirmed schedule card — shown after form submit with scheduling */}
+        {confirmedSchedule && (
+          <ScheduleConfirmationCard
+            info={confirmedSchedule}
+            onDismiss={() => setConfirmedSchedule(null)}
+          />
+        )}
+
+        {/* Schedule for later */}
+        <div className="rounded-xl border border-white/10 bg-[#1A1A1A] overflow-hidden">
+          <button
+            type="button"
+            data-ocid="upload.schedule.toggle"
+            className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-white/5 transition-colors"
+            onClick={() => {
+              setScheduleEnabled((v) => !v);
+              setScheduleError("");
+              if (scheduleEnabled) setScheduledAt(null);
+            }}
+          >
+            <div className="flex items-center gap-2.5">
+              <CalendarClock size={16} className="text-orange flex-shrink-0" />
+              <div className="text-left">
+                <p className="text-sm font-medium text-white">
+                  Schedule for later
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Video stays hidden until publish time
+                </p>
+              </div>
+            </div>
+            <div
+              className={`w-10 h-5 rounded-full transition-colors flex items-center px-0.5 ${scheduleEnabled ? "bg-orange" : "bg-white/20"}`}
+            >
+              <div
+                className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${scheduleEnabled ? "translate-x-5" : "translate-x-0"}`}
+              />
+            </div>
+          </button>
+
+          {scheduleEnabled && (
+            <div className="px-4 pb-4 space-y-3 border-t border-white/10">
+              <p className="text-xs text-muted-foreground pt-3">
+                Pick a future date and time
+              </p>
+              <input
+                type="datetime-local"
+                min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                value={
+                  scheduledAt
+                    ? new Date(
+                        scheduledAt.getTime() -
+                          scheduledAt.getTimezoneOffset() * 60000,
+                      )
+                        .toISOString()
+                        .slice(0, 16)
+                    : ""
+                }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val) {
+                    setScheduledAt(null);
+                    setScheduleError("");
+                    return;
+                  }
+                  const d = new Date(val);
+                  if (d <= new Date()) {
+                    setScheduleError("Please pick a future date and time.");
+                    setScheduledAt(null);
+                  } else {
+                    setScheduleError("");
+                    setScheduledAt(d);
+                  }
+                }}
+                className="w-full bg-[#242424] text-white border border-white/10 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-orange/60"
+                data-ocid="upload.schedule.input"
+              />
+              {scheduleError && (
+                <p
+                  className="text-xs text-red-400"
+                  data-ocid="upload.schedule.error_state"
+                >
+                  {scheduleError}
+                </p>
+              )}
+              {scheduledAt && (
+                <div className="flex items-center gap-2 rounded-lg bg-orange/10 border border-orange/20 px-3 py-2">
+                  <CalendarClock
+                    size={13}
+                    className="text-orange flex-shrink-0"
+                  />
+                  <p className="text-xs text-orange">
+                    Will publish: {formatAppDateTime(scheduledAt, prefs)}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Add to queue button */}
         <Button
