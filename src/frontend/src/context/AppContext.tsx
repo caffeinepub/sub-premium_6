@@ -7,7 +7,8 @@ export type Page =
   | "upload"
   | "history"
   | "menu"
-  | "playlist";
+  | "playlist"
+  | "channel";
 
 interface AppContextValue {
   page: Page;
@@ -30,6 +31,8 @@ interface AppContextValue {
   setNotifTick: React.Dispatch<React.SetStateAction<number>>;
   selectedPlaylistId: string | null;
   setSelectedPlaylistId: (id: string | null) => void;
+  channelCreatorId: string | null;
+  setChannelCreatorId: (id: string | null) => void;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
@@ -49,6 +52,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(
     null,
   );
+  const [channelCreatorId, setChannelCreatorId] = useState<string | null>(null);
 
   return (
     <AppContext.Provider
@@ -73,6 +77,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setNotifTick,
         selectedPlaylistId,
         setSelectedPlaylistId,
+        channelCreatorId,
+        setChannelCreatorId,
       }}
     >
       {children}

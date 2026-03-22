@@ -113,6 +113,10 @@ export interface _SERVICE {
   'setCaptionTrack' : ActorMethod<[string, string, string, string], undefined>,
   'updateSettings' : ActorMethod<[UserSettings], undefined>,
   'updateVideoCaption' : ActorMethod<[string, string], undefined>,
+  'updateVideoMetadata' : ActorMethod<
+    [string, string, ExternalBlob],
+    undefined
+  >,
   'updateVideoQuality' : ActorMethod<[string, string], undefined>,
   'updateVideoStatus' : ActorMethod<[string, string], undefined>,
   'updateWatchHistory' : ActorMethod<[string], undefined>,

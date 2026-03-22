@@ -14,6 +14,7 @@ import { SettingsSheet } from "./components/SettingsSheet";
 import { AppProvider, useApp } from "./context/AppContext";
 import { UploadQueueProvider } from "./context/UploadQueueContext";
 import { InternetIdentityProvider } from "./hooks/useInternetIdentity";
+import { ChannelPage } from "./pages/ChannelPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { HomePage } from "./pages/HomePage";
 import { MenuPage } from "./pages/MenuPage";
@@ -116,6 +117,11 @@ function AppContent() {
           {page === "playlist" && (
             <div key="playlist">
               <PlaylistPage />
+            </div>
+          )}
+          {page === "channel" && (
+            <div key="channel">
+              <ChannelPage />
             </div>
           )}
         </AnimatePresence>

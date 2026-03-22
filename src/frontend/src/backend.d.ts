@@ -99,6 +99,7 @@ export interface backendInterface {
     setCaptionTrack(videoId: string, language: string, captionLabel: string, vtt: string): Promise<void>;
     updateSettings(settings: UserSettings): Promise<void>;
     updateVideoCaption(videoId: string, vtt: string): Promise<void>;
+    updateVideoMetadata(videoId: string, newTitle: string, newThumbnailBlob: ExternalBlob): Promise<void>;
     updateVideoQuality(videoId: string, quality: string): Promise<void>;
     updateVideoStatus(videoId: string, status: string): Promise<void>;
     updateWatchHistory(videoId: string): Promise<void>;

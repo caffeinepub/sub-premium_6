@@ -7,7 +7,7 @@ import { AddToPlaylistModal } from "../components/AddToPlaylistModal";
 import { VideoCard } from "../components/VideoCard";
 import { useApp } from "../context/AppContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
-import { useListVideos } from "../hooks/useQueries";
+import { useListVideos, useSubscriptions } from "../hooks/useQueries";
 import {
   type PlaylistPrivacy,
   createPlaylist,
@@ -420,7 +420,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
   );
 
   // Subscriptions tab
-  const subscriptions = getSubscriptions();
+  const { data: subscriptions = [] } = useSubscriptions();
   const subscribedVideos = videos.filter((v) =>
     subscriptions.includes(v.creatorId),
   );
@@ -552,7 +552,16 @@ export function HomePage({ searchTerm }: HomePageProps) {
             {/* 2. Playlists */}
             <PlaylistsRow />
 
-            {/* 3. Your Videos */}
+            {/* 3. Subscriptions Row */}
+            {identity && subscribedVideos.length > 0 && (
+              <HorizontalRow
+                title="Subscriptions"
+                videos={subscribedVideos.slice(0, 10)}
+                onVideoClick={handleVideoClick}
+              />
+            )}
+
+            {/* 4. Your Videos */}
             {yourVideos.length > 0 && (
               <section className="mb-5">
                 <div className="flex items-center justify-between px-3 mb-2">
@@ -582,7 +591,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
               </section>
             )}
 
-            {/* 4. Liked Videos */}
+            {/* 5. Liked Videos */}
             {likedVideos.length > 0 && (
               <HorizontalRow
                 title="Liked Videos"
@@ -591,7 +600,7 @@ export function HomePage({ searchTerm }: HomePageProps) {
               />
             )}
 
-            {/* 5. Recommended */}
+            {/* 6. Recommended */}
             <GridSection
               title="Recommended for You"
               videos={recommendedVideos}

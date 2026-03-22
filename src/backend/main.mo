@@ -1,4 +1,3 @@
-
 import Map "mo:core/Map";
 import Array "mo:core/Array";
 import Time "mo:core/Time";
@@ -12,7 +11,6 @@ import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
 import MixinStorage "blob-storage/Mixin";
 import Storage "blob-storage/Storage";
-
 
 actor {
   let accessControlState = AccessControl.initState();
@@ -103,6 +101,8 @@ actor {
   let userSettings = Map.empty<Principal, UserSettings>();
   let watchHistory = Map.empty<Principal, [VideoView]>();
   let uploadLimits = Map.empty<Principal, UploadLimits>();
+  // subscriptions: subscriber principal -> array of creator principals they follow
+  let subscriptions = Map.empty<Principal, [Principal]>();
 
   public query ({ caller }) func getCreatorTier(user : Principal) : async CreatorTier {
     switch (creatorTiers.get(user)) {
@@ -342,6 +342,11 @@ actor {
     profiles.get(user);
   };
 
+  // Public profile — no auth restriction, for channel pages
+  public query func getPublicProfile(creatorId : Principal) : async ?UserProfile {
+    profiles.get(creatorId);
+  };
+
   public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can save profiles");
@@ -394,6 +399,36 @@ actor {
 
     videos.add(videoId, video);
     videoId;
+  };
+
+  public shared ({ caller }) func updateVideoMetadata(
+    videoId : Text,
+    newTitle : Text,
+    newThumbnailBlob : Storage.ExternalBlob,
+  ) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can update video metadata");
+    };
+    switch (videos.get(videoId)) {
+      case (null) {
+        Runtime.trap("Video not found");
+      };
+      case (?video) {
+        let isOwner = video.creatorId == caller.toText();
+        let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+
+        if (not (isOwner or isAdmin)) {
+          Runtime.trap("Unauthorized: Only the creator or admin can update metadata");
+        };
+
+        let updatedVideo : Video = {
+          video with
+          title = newTitle;
+          thumbnailBlob = newThumbnailBlob;
+        };
+        videos.add(videoId, updatedVideo);
+      };
+    };
   };
 
   public shared ({ caller }) func updateVideoStatus(videoId : Text, status : Text) : async () {
@@ -472,6 +507,11 @@ actor {
 
   public query func searchVideos(searchTerm : Text) : async [Video] {
     videos.values().toArray().filter(func(video) { video.title.contains(#text searchTerm) });
+  };
+
+  // Public query: get all videos by a creator (by creatorId text)
+  public query func getVideosByCreator(creatorId : Text) : async [Video] {
+    videos.values().toArray().filter(func(video) { video.creatorId == creatorId });
   };
 
   public shared func incrementViews(videoId : Text) : async () {
@@ -623,5 +663,71 @@ actor {
       Runtime.trap("Unauthorized: Only users can access settings");
     };
     userSettings.get(caller);
+  };
+
+  // ── Subscription Functions ───────────────────────────────────────────
+
+  // Subscribe to a creator (caller follows creatorId)
+  public shared ({ caller }) func subscribe(creatorId : Principal) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can subscribe");
+    };
+    let existing = switch (subscriptions.get(caller)) {
+      case (null) { [] };
+      case (?list) { list };
+    };
+    // Prevent duplicates
+    let alreadySubscribed = existing.filter(func(p : Principal) : Bool { p == creatorId }).size() > 0;
+    if (not alreadySubscribed) {
+      subscriptions.add(caller, [creatorId].concat(existing));
+    };
+  };
+
+  // Unsubscribe from a creator
+  public shared ({ caller }) func unsubscribe(creatorId : Principal) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can unsubscribe");
+    };
+    let existing = switch (subscriptions.get(caller)) {
+      case (null) { [] };
+      case (?list) { list };
+    };
+    subscriptions.add(caller, existing.filter(func(p : Principal) : Bool { p != creatorId }));
+  };
+
+  // Check if caller is subscribed to creatorId
+  public query ({ caller }) func isSubscribed(creatorId : Principal) : async Bool {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      return false;
+    };
+    let existing = switch (subscriptions.get(caller)) {
+      case (null) { [] };
+      case (?list) { list };
+    };
+    existing.filter(func(p : Principal) : Bool { p == creatorId }).size() > 0;
+  };
+
+  // Get total subscriber count for a creator
+  public query func getSubscriberCount(creatorId : Principal) : async Nat {
+    var count : Nat = 0;
+    for ((_, subs) in subscriptions.entries()) {
+      for (p in subs.vals()) {
+        if (p == creatorId) {
+          count += 1;
+        };
+      };
+    };
+    count;
+  };
+
+  // Get all creator principals the caller subscribes to
+  public query ({ caller }) func getSubscriptions() : async [Principal] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can get subscriptions");
+    };
+    switch (subscriptions.get(caller)) {
+      case (null) { [] };
+      case (?list) { list };
+    };
   };
 };

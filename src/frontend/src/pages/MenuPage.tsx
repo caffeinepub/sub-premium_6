@@ -22,6 +22,7 @@ import {
   BadgeCheck,
   Bookmark,
   Camera,
+  ChevronRight,
   Link,
   ListVideo,
   Loader2,
@@ -71,6 +72,7 @@ export function MenuPage() {
   const [playlists, setPlaylists] = useState(getPlaylists());
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const editProfileRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (profile) {
@@ -171,12 +173,23 @@ export function MenuPage() {
 
   const refreshPlaylists = () => setPlaylists(getPlaylists());
 
+  const scrollToEditProfile = () => {
+    editProfileRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
+  const avatarSrc = avatarPreview || avatarUrl;
+  const avatarInitials = displayName.slice(0, 2).toUpperCase() || "SP";
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="flex-1 overflow-y-auto pb-20"
     >
+      {/* Sticky top bar */}
       <div className="sticky top-0 z-30 bg-background border-b border-border/40 px-4 py-3 flex items-center gap-3">
         <button
           type="button"
@@ -188,6 +201,119 @@ export function MenuPage() {
         </button>
         <h1 className="font-bold text-base">Profile &amp; Settings</h1>
       </div>
+
+      {/* ── PROFILE HEADER ─────────────────────────────────────────────── */}
+      <AnimatePresence mode="wait">
+        {isInitializing ? (
+          <motion.div
+            key="header-loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex items-center gap-3 px-4 py-4 bg-background"
+          >
+            <Skeleton className="w-12 h-12 rounded-full bg-surface2 flex-shrink-0" />
+            <div className="flex-1 space-y-1.5">
+              <Skeleton className="h-3.5 w-28 bg-surface2" />
+              <Skeleton className="h-3 w-20 bg-surface2" />
+            </div>
+          </motion.div>
+        ) : identity ? (
+          <motion.div
+            key="header-loggedin"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex items-center gap-0 px-4 py-4 bg-background"
+          >
+            {/* Avatar — tap → edit profile */}
+            <button
+              type="button"
+              data-ocid="menu.upload_button"
+              onClick={scrollToEditProfile}
+              className="relative flex-shrink-0"
+              aria-label="Edit profile"
+            >
+              <Avatar className="w-12 h-12 border-2 border-orange/60">
+                {avatarSrc && <AvatarImage src={avatarSrc} />}
+                <AvatarFallback className="bg-surface2 text-sm font-bold text-orange">
+                  {avatarInitials}
+                </AvatarFallback>
+              </Avatar>
+              {/* Online indicator */}
+              <span
+                aria-label="Online"
+                className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-green-500 border-2 border-background"
+              />
+            </button>
+
+            {/* Name + username — tap → channel page */}
+            <button
+              type="button"
+              data-ocid="menu.link"
+              onClick={() => setPage("channel")}
+              className="flex-1 ml-3 min-w-0 text-left active:opacity-70 transition-opacity cursor-pointer"
+            >
+              {profileLoading ? (
+                <>
+                  <Skeleton className="h-3.5 w-28 bg-surface2 mb-1.5" />
+                  <Skeleton className="h-3 w-20 bg-surface2" />
+                </>
+              ) : (
+                <>
+                  <p className="font-bold text-white text-sm leading-tight truncate">
+                    {displayName || "Your Name"}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    @{username || "username"}
+                  </p>
+                </>
+              )}
+            </button>
+
+            {/* View channel button — tap → channel page */}
+            <button
+              type="button"
+              data-ocid="menu.secondary_button"
+              onClick={() => setPage("channel")}
+              className="flex items-center gap-0.5 text-xs font-semibold text-orange flex-shrink-0 ml-2 hover:text-orange/80 transition-colors"
+            >
+              View channel
+              <ChevronRight size={13} className="mt-px" />
+            </button>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="header-loggedout"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex items-center gap-3 px-4 py-4 bg-background"
+          >
+            {/* Generic avatar placeholder */}
+            <div className="relative flex-shrink-0">
+              <div className="w-12 h-12 rounded-full bg-surface2 flex items-center justify-center">
+                <LogIn size={20} className="text-muted-foreground" />
+              </div>
+            </div>
+            <p className="flex-1 text-sm text-muted-foreground">
+              Sign in to see your profile
+            </p>
+            <button
+              type="button"
+              data-ocid="menu.primary_button"
+              onClick={login}
+              className="text-xs font-semibold text-orange hover:text-orange/80 transition-colors flex-shrink-0"
+            >
+              Sign in
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Divider below header */}
+      <Separator className="bg-border/40" />
 
       <div className="px-4 py-5 space-y-6">
         {/* ── PLAYLISTS SECTION ─────────────────────────────────────────── */}
@@ -377,7 +503,7 @@ export function MenuPage() {
             )}
 
             {/* Edit Profile */}
-            <div className="space-y-3">
+            <div ref={editProfileRef} className="space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Edit Profile
               </p>

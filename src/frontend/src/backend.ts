@@ -192,6 +192,7 @@ export interface backendInterface {
     setCaptionTrack(videoId: string, language: string, captionLabel: string, vtt: string): Promise<void>;
     updateSettings(settings: UserSettings): Promise<void>;
     updateVideoCaption(videoId: string, vtt: string): Promise<void>;
+    updateVideoMetadata(videoId: string, newTitle: string, newThumbnailBlob: ExternalBlob): Promise<void>;
     updateVideoQuality(videoId: string, quality: string): Promise<void>;
     updateVideoStatus(videoId: string, status: string): Promise<void>;
     updateWatchHistory(videoId: string): Promise<void>;
@@ -632,6 +633,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.updateVideoCaption(arg0, arg1);
+            return result;
+        }
+    }
+    async updateVideoMetadata(arg0: string, arg1: string, arg2: ExternalBlob): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateVideoMetadata(arg0, arg1, await to_candid_ExternalBlob_n22(this._uploadFile, this._downloadFile, arg2));
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateVideoMetadata(arg0, arg1, await to_candid_ExternalBlob_n22(this._uploadFile, this._downloadFile, arg2));
             return result;
         }
     }

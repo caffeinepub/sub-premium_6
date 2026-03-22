@@ -89,6 +89,7 @@ export function VideoPlayerPage() {
     setMiniPlayerActive,
     setMiniPlayerVideo,
     setNotifTick,
+    setChannelCreatorId,
   } = useApp();
   const { identity } = useInternetIdentity();
   const queryClient = useQueryClient();
@@ -1056,9 +1057,17 @@ export function VideoPlayerPage() {
             {selectedVideo.title}
           </h1>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <span className="text-sm text-muted-foreground">
+            <button
+              type="button"
+              data-ocid="player.link"
+              onClick={() => {
+                setChannelCreatorId(selectedVideo.creatorId);
+                setPage("channel");
+              }}
+              className="text-sm text-muted-foreground hover:text-orange transition-colors font-medium"
+            >
               {selectedVideo.creatorName || "Unknown"}
-            </span>
+            </button>
             <span className="text-muted-foreground/40 text-xs">•</span>
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Eye size={11} />
