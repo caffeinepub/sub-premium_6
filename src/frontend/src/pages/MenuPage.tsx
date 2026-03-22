@@ -29,6 +29,7 @@ import {
   LogIn,
   Plus,
   Save,
+  Settings,
   ShieldCheck,
   Trash2,
   X,
@@ -314,6 +315,20 @@ export function MenuPage() {
 
       {/* Divider below header */}
       <Separator className="bg-border/40" />
+
+      {/* Settings row */}
+      <button
+        type="button"
+        data-ocid="menu.settings.button"
+        onClick={() => setPage("settings")}
+        className="w-full flex items-center justify-between px-4 py-3.5 border-b border-border/30 hover:bg-white/5 active:bg-white/5 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <Settings size={17} className="text-orange" />
+          <span className="text-sm font-medium">Settings</span>
+        </div>
+        <ChevronRight size={15} className="text-muted-foreground" />
+      </button>
 
       <div className="px-4 py-5 space-y-6">
         {/* ── PLAYLISTS SECTION ─────────────────────────────────────────── */}

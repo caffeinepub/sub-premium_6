@@ -1,43 +1,40 @@
 # SUB PREMIUM
 
 ## Current State
-Fully deployed video streaming platform with dark-themed mobile-first UI. Has Settings sheet, video player with CC support, comments, bottom nav, and app context. No i18n system exists — all UI text is hardcoded in English. Subtitle language preference is not persisted across sessions. Comments have no translation UI.
+Settings are in a slide-out `SettingsSheet` component opened from the header. It has basic sections: dark mode toggle, language selector, subtitle language, storage management, clear cache, app version, and logout. The MenuPage is the Profile/Settings hub but has no dedicated full-page settings route.
 
 ## Requested Changes (Diff)
 
 ### Add
-- `src/frontend/src/i18n/` directory with:
-  - `index.ts` — i18n context/provider, `useT()` hook, lazy-load logic, fallback to English
-  - `locales/en.json`, `fr.json`, `es.json`, `hi.json`, `ar.json` — key-based translation files covering nav, buttons, labels, system messages
-- `I18nProvider` wrapping app in `App.tsx`
-- Language selector in `SettingsSheet.tsx` — dropdown with English, French, Spanish, Hindi, Arabic; persists to localStorage; applies instantly
-- Subtitle language preference stored in localStorage; auto-selects matching CC track on video load
-- `CommentItem` component with inline translate button (shown when comment language differs from app language), fade animation for text swap, "Show original" toggle, and cache of translated results in a Map
-- `translateComment()` stub function in `i18n/index.ts` — modular, ready for real API swap
+- New `settings` page type in AppContext.Page
+- New `SettingsPage.tsx` full-page component with 7 structured sections
+- Local-storage-backed settings state: notifications toggles, appearance (dark/light, font size S/M/L), app preferences (sound effects, autoplay, captions default)
+- Delete account confirmation dialog in Privacy & Security
+- Feedback form modal in Support & About
+- FAQ accordion in Support & About
+- Date/time preferences section (time format 12h/24h, date format, timezone)
+- Settings navigation entry in MenuPage
 
 ### Modify
-- `BottomNav.tsx` — use `useT()` for nav labels
-- `SettingsSheet.tsx` — add language selector section; use `useT()` for all labels
-- `VideoPlayerPage.tsx` — read subtitle language pref from localStorage and auto-select track; persist CC language choice on change
-- `Header.tsx` — use `useT()` for search placeholder and icon labels
-- `HomePage.tsx` — use `useT()` for section titles
-- `MenuPage.tsx` — use `useT()` for menu item labels
-- `UploadPage.tsx` — use `useT()` for form labels and buttons
-- Comments area in `VideoPlayerPage.tsx` — wrap each comment in `CommentItem` with translate affordance
-- `App.tsx` — wrap content in `I18nProvider`
+- AppContext: add `settings` to Page union type
+- App.tsx: render SettingsPage for `page === "settings"`
+- MenuPage: add a Settings list item that navigates to the settings page
+- Existing SettingsSheet: keep for backward compat but the new page is the primary settings UI
 
 ### Remove
-- No removals
+- Nothing removed; SettingsSheet kept as fallback
 
 ## Implementation Plan
-1. Create translation JSON files (en, fr, es, hi, ar) covering all key UI strings
-2. Build `i18n/index.ts` with:
-   - `I18nProvider` — reads language from localStorage, lazy-loads locale JSON, provides context
-   - `useT()` hook — returns `t(key)` function with English fallback
-   - `translateComment(text, targetLang)` — stub returning mock translated text, structured for future API replacement
-3. Wrap `AppContent` in `I18nProvider` in `App.tsx`
-4. Add language selector to `SettingsSheet.tsx` — instantly updates context + localStorage
-5. Apply `useT()` across BottomNav, Header, HomePage, MenuPage, UploadPage, SettingsSheet
-6. In VideoPlayerPage, read `subtitleLang` from localStorage on mount; auto-select matching track; persist on CC language change
-7. Build `CommentItem` with translate button logic, fade animation, cached translations, and "Show original" toggle
-8. Wire `CommentItem` into VideoPlayerPage comments list
+1. Update `AppContext.tsx` — add `"settings"` to the Page type
+2. Update `App.tsx` — import and render `SettingsPage` for `page === "settings"`
+3. Create `SettingsPage.tsx` with sections:
+   - **Account**: avatar, name, username, bio edit (inline) + linked accounts placeholder + save button
+   - **Notifications**: master push toggle + sub-toggles (new videos, comments & replies, upload status)
+   - **Appearance**: dark/light mode toggle + font size selector (S/M/L, applies CSS var)
+   - **Language & Region**: language selector (uses existing I18n system) + date format + time format + timezone
+   - **Privacy & Security**: change password placeholder, clear cache button, manage storage link, logout button, delete account (with confirmation dialog)
+   - **Support & About**: FAQ accordion (3 items), feedback form (textarea + send), app version v1.0.0, © 2026 SUB PREMIUM
+   - **App Preferences**: sound effects toggle, autoplay toggle, captions default ON/OFF
+4. Persist all settings to localStorage under a `app_prefs` key; apply instantly
+5. Font size: applies `data-fontsize` attribute on `<html>` element; CSS targets it
+6. Update MenuPage: add a `Settings` row item that calls `setPage("settings")`

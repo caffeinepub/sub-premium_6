@@ -8,7 +8,8 @@ export type Page =
   | "history"
   | "menu"
   | "playlist"
-  | "channel";
+  | "channel"
+  | "settings";
 
 interface AppContextValue {
   page: Page;

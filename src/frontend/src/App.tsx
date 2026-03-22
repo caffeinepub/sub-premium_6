@@ -20,6 +20,7 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { HomePage } from "./pages/HomePage";
 import { MenuPage } from "./pages/MenuPage";
 import { PlaylistPage } from "./pages/PlaylistPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { UploadPage } from "./pages/UploadPage";
 import { VideoPlayerPage } from "./pages/VideoPlayerPage";
 import {
@@ -122,6 +123,11 @@ function AppContent() {
           {page === "playlist" && (
             <div key="playlist">
               <PlaylistPage />
+            </div>
+          )}
+          {page === "settings" && (
+            <div key="settings">
+              <SettingsPage />
             </div>
           )}
           {page === "channel" && (
