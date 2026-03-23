@@ -2,6 +2,7 @@ import { Maximize2, Pause, Play, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context/AppContext";
+import { isUpcoming } from "../utils/premiereUtils";
 
 export function FloatingMiniPlayer() {
   const {
@@ -81,6 +82,11 @@ export function FloatingMiniPlayer() {
   const onTouchEnd = () => {
     dragStart.current = null;
   };
+
+  // Don't show mini player for upcoming locked videos
+  if (miniPlayerVideo && isUpcoming(miniPlayerVideo)) {
+    return null;
+  }
 
   if (!miniPlayerActive || !miniPlayerVideo) return null;
 

@@ -31,6 +31,7 @@ import {
   getScheduledVideos,
   markScheduledVideoNotified,
 } from "./utils/dateTimePrefs";
+import { isUpcoming } from "./utils/premiereUtils";
 import {
   getPendingReminders,
   markReminderNotified,
@@ -106,7 +107,12 @@ function AppContent() {
 
   const handleVideoSelect = (video: Video) => {
     setSelectedVideo(video);
-    setPage("player");
+    // Safety check: never allow player for upcoming/locked videos
+    if (isUpcoming(video)) {
+      setPage("premiere-preview");
+    } else {
+      setPage("player");
+    }
   };
 
   return (

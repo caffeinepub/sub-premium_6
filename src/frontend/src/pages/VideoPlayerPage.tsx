@@ -44,6 +44,7 @@ import { useI18n } from "../i18n";
 import { checkMilestone, formatMilestone } from "../utils/milestones";
 import { addNotification } from "../utils/notifications";
 import { isVideoInAnyPlaylist } from "../utils/playlists";
+import { isUpcoming } from "../utils/premiereUtils";
 import {
   getRecommendedVideoIds,
   getWatchProgress,
@@ -371,6 +372,12 @@ export function VideoPlayerPage() {
 
   if (!selectedVideo) {
     setPage("home");
+    return null;
+  }
+
+  // CRITICAL safety check: never render player for locked upcoming videos
+  if (isUpcoming(selectedVideo)) {
+    setPage("premiere-preview");
     return null;
   }
 
