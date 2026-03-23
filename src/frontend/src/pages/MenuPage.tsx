@@ -70,20 +70,36 @@ export function MenuPage() {
   const [avatarPreview, setAvatarPreview] = useState("");
   const [uploading, setUploading] = useState(false);
 
+  // Change 1: Hydration guard ref
+  const hasHydratedRef = useRef(false);
+
   // Playlist state
   const [playlists, setPlaylists] = useState(getPlaylists());
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const editProfileRef = useRef<HTMLDivElement>(null);
 
+  // Change 2: Hydrate only once per login session
   useEffect(() => {
-    if (profile) {
+    // Only hydrate once per login session — never overwrite user-edited fields
+    if (profile && !hasHydratedRef.current) {
+      hasHydratedRef.current = true;
       setDisplayName(profile.displayName || "");
       setUsername(profile.username || "");
       setBio(profile.bio || "");
       setAvatarUrl(profile.avatarBlobId || "");
     }
   }, [profile]);
+
+  // Reset hydration flag when identity changes (new login)
+  const prevIdentityRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentId = identity?.getPrincipal().toString() ?? null;
+    if (currentId !== prevIdentityRef.current) {
+      prevIdentityRef.current = currentId;
+      hasHydratedRef.current = false;
+    }
+  }, [identity]);
 
   const { data: creatorStats } = useQuery({
     queryKey: ["creatorStats"],
@@ -133,6 +149,19 @@ export function MenuPage() {
       toast.error("Still connecting — please try again in a moment.");
       return;
     }
+
+    // Require display name
+    if (!displayName.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+
+    // Wait for avatar upload to finish
+    if (uploading) {
+      toast.error("Please wait for image upload to finish");
+      return;
+    }
+
     try {
       await saveProfile.mutateAsync({
         displayName,
@@ -140,15 +169,9 @@ export function MenuPage() {
         bio,
         avatarBlobId: avatarUrl,
       });
-      toast.success("Profile saved!");
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err);
-      const message = raw.includes("Not authenticated")
-        ? "Session expired — please log in again."
-        : raw.includes("Actor not ready")
-          ? "Network not ready, please try again."
-          : raw;
-      toast.error(message);
+      toast.success("Profile saved");
+    } catch {
+      toast.error("Failed to save profile");
     }
   };
 
@@ -641,6 +664,13 @@ export function MenuPage() {
                   </>
                 )}
               </Button>
+              {/* Change 5: Retry hint on save error */}
+              {saveProfile.isError && !saveProfile.isPending && (
+                <p className="text-xs text-destructive/80 text-center mt-1">
+                  Save failed — tap Save Profile to retry. Your edits are
+                  preserved.
+                </p>
+              )}
             </div>
 
             <Separator className="bg-border/60" />

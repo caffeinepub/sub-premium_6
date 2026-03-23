@@ -50,7 +50,7 @@ actor {
     vtt : Text;
   };
 
-  // Internal stored type — unchanged from original for stable variable compatibility
+  // Internal stored type
   type VideoData = {
     id : Text;
     title : Text;
@@ -66,7 +66,7 @@ actor {
     captionVtt : Text;
   };
 
-  // Public type returned by all queries — includes scheduledPublishTime merged from videoSchedules
+  // Public type returned by all queries
   public type Video = {
     id : Text;
     title : Text;
@@ -112,18 +112,16 @@ actor {
     tempBlockRemaining : Nat;
   };
 
-  // Stable maps
-  let creatorTiers = Map.empty<Principal, CreatorTier>();
-  let profiles = Map.empty<Principal, UserProfile>();
-  // `videos` stores VideoData (original type) — stable-compatible with previous deployment
-  let videos = Map.empty<Text, VideoData>();
-  // NEW stable map for scheduled publish times (separate from videos to avoid type incompatibility)
-  let videoSchedules = Map.empty<Text, Time.Time>();
-  let captionTracks = Map.empty<Text, [CaptionTrack]>();
-  let userSettings = Map.empty<Principal, UserSettings>();
-  let watchHistory = Map.empty<Principal, [VideoView]>();
-  let uploadLimits = Map.empty<Principal, UploadLimits>();
-  let subscriptions = Map.empty<Principal, [Principal]>();
+  // ── STABLE persistent maps (survive canister upgrades) ──────────────
+  stable var creatorTiers = Map.empty<Principal, CreatorTier>();
+  stable var profiles = Map.empty<Principal, UserProfile>();
+  stable var videos = Map.empty<Text, VideoData>();
+  stable var videoSchedules = Map.empty<Text, Time.Time>();
+  stable var captionTracks = Map.empty<Text, [CaptionTrack]>();
+  stable var userSettings = Map.empty<Principal, UserSettings>();
+  stable var watchHistory = Map.empty<Principal, [VideoView]>();
+  stable var uploadLimits = Map.empty<Principal, UploadLimits>();
+  stable var subscriptions = Map.empty<Principal, [Principal]>();
 
   // Merge VideoData + scheduled time into public Video type
   func toVideo(data : VideoData) : Video {
@@ -144,9 +142,6 @@ actor {
     };
   };
 
-  // A video is publicly visible if:
-  //   - status is "ready" and no schedule, OR
-  //   - status is "scheduled" and the scheduled time has passed
   func isVideoPublic(data : VideoData) : Bool {
     let now = Time.now();
     switch (videoSchedules.get(data.id)) {
@@ -281,9 +276,33 @@ actor {
     profiles.get(creatorId);
   };
 
+  public type ProfileEntry = {
+    principalId : Text;
+    profile : UserProfile;
+  };
+
+  public query func listAllProfiles() : async [ProfileEntry] {
+    profiles.entries().toArray().map(func((p, prof) : (Principal, UserProfile)) : ProfileEntry {
+      { principalId = p.toText(); profile = prof };
+    });
+  };
+
+  // Safe upsert: only write fields that are non-empty, preserving existing data
   public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) { Runtime.trap("Unauthorized") };
-    profiles.add(caller, profile);
+    let existing = profiles.get(caller);
+    let merged : UserProfile = switch (existing) {
+      case (null) { profile };
+      case (?ex) {
+        {
+          displayName = if (profile.displayName != "") { profile.displayName } else { ex.displayName };
+          username = if (profile.username != "") { profile.username } else { ex.username };
+          bio = if (profile.bio != "") { profile.bio } else { ex.bio };
+          avatarBlobId = if (profile.avatarBlobId != "") { profile.avatarBlobId } else { ex.avatarBlobId };
+        };
+      };
+    };
+    profiles.add(caller, merged);
   };
 
   // ── Video Functions ─────────────────────────────────────────────────────
@@ -299,6 +318,14 @@ actor {
     let perm = computePermission(caller);
     if (not perm.allowed) { Runtime.trap("Upload limit reached: " # perm.reason) };
     recordUploadInternal(caller, id);
+    // Preserve existing video if it already exists (re-upload safety)
+    switch (videos.get(id)) {
+      case (?_existing) {
+        // Video already exists — do not overwrite
+        return id;
+      };
+      case (null) {};
+    };
     let data : VideoData = {
       id;
       title;

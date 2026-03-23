@@ -83,9 +83,13 @@ export function FloatingMiniPlayer() {
     dragStart.current = null;
   };
 
-  // Don't show mini player for upcoming locked videos
-  if (miniPlayerVideo && isUpcoming(miniPlayerVideo)) {
-    return null;
+  // Don't show mini player for upcoming/locked videos
+  if (miniPlayerVideo) {
+    const _satRaw = (miniPlayerVideo as any)?.scheduledAt;
+    const _satMs = _satRaw ? Number(_satRaw) / 1_000_000 : null;
+    const _isLocked =
+      isUpcoming(miniPlayerVideo) || (_satMs && _satMs > Date.now());
+    if (_isLocked) return null;
   }
 
   if (!miniPlayerActive || !miniPlayerVideo) return null;

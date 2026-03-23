@@ -64,6 +64,10 @@ export interface UserProfile {
     displayName: string;
     avatarBlobId: string;
 }
+export interface ProfileEntry {
+    principalId: string;
+    profile: UserProfile;
+}
 export enum CreatorTier {
     verified = "verified",
     active = "active",
@@ -92,6 +96,7 @@ export interface backendInterface {
     incrementViews(videoId: string): Promise<void>;
     isCallerAdmin(): Promise<boolean>;
     listAllVideos(): Promise<Array<Video>>;
+    listAllProfiles(): Promise<Array<ProfileEntry>>;
     listReadyVideos(): Promise<Array<Video>>;
     removeCaptionTrack(videoId: string, language: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;

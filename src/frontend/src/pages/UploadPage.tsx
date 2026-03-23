@@ -72,69 +72,6 @@ function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-interface ScheduleConfirmationCardProps {
-  info: { title: string; publishTime: number };
-  onDismiss: () => void;
-}
-
-function ScheduleConfirmationCard({
-  info,
-  onDismiss,
-}: ScheduleConfirmationCardProps) {
-  const [countdown, setCountdown] = useState(() =>
-    formatPremiereCountdown(info.publishTime),
-  );
-
-  useEffect(() => {
-    const tick = () => setCountdown(formatPremiereCountdown(info.publishTime));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [info.publishTime]);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="rounded-xl border border-orange/30 bg-orange/8 p-4 space-y-3"
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-orange animate-pulse" />
-          <p className="text-sm font-bold text-orange">Video Scheduled</p>
-        </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="text-muted-foreground/60 hover:text-muted-foreground text-lg leading-none"
-          aria-label="Dismiss"
-        >
-          ×
-        </button>
-      </div>
-      <p className="text-xs text-foreground font-semibold line-clamp-1">
-        {info.title}
-      </p>
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <CalendarClock size={12} className="text-orange/70" />
-          <span>{formatPremiereDate(info.publishTime)}</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="text-orange/70">⏱</span>
-          <span>{formatPremiereDaysLabel(info.publishTime)}</span>
-        </div>
-      </div>
-      <div className="rounded-lg bg-orange/10 border border-orange/20 px-3 py-2 flex items-center gap-2">
-        <span className="text-xs font-semibold text-orange">{countdown}</span>
-        <span className="text-xs text-muted-foreground">
-          · No upload progress at release
-        </span>
-      </div>
-    </motion.div>
-  );
-}
-
 export function UploadPage() {
   const { setPage } = useApp();
   const { addJob, hasActive, activeCount, queuedCount } = useUploadQueue();
@@ -151,10 +88,11 @@ export function UploadPage() {
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
   const [scheduleError, setScheduleError] = useState("");
-  const [confirmedSchedule, setConfirmedSchedule] = useState<{
+  const [_confirmedSchedule, setConfirmedSchedule] = useState<{
     title: string;
     publishTime: number;
   } | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
   const { actor } = useActor();
   const prefs = loadDateTimePrefs();
 
@@ -251,7 +189,6 @@ export function UploadPage() {
             scheduleFn
               .call(actor, videoId, dateToNanos(scheduledAt))
               .catch(() => {
-                // fallback: just update status
                 actor.updateVideoStatus(videoId, "scheduled").catch(() => {});
               });
           }
@@ -266,21 +203,13 @@ export function UploadPage() {
         notified: false,
       });
       toast.success(
-        `Video scheduled for ${formatAppDateTime(scheduledAt, prefs)}!`,
+        `Premiere scheduled for ${formatAppDateTime(scheduledAt, prefs)}!`,
       );
     } else {
       toast.success("Added to upload queue!");
     }
 
-    // If scheduled: save confirmation state before resetting form
-    if (scheduleEnabled && scheduledAt) {
-      setConfirmedSchedule({
-        title: title.trim(),
-        publishTime: scheduledAt.getTime(),
-      });
-    }
-
-    // Reset form for next upload
+    // Reset form
     setTitle("");
     setDescription("");
     setVideoFile(null);
@@ -295,15 +224,31 @@ export function UploadPage() {
     setScheduleEnabled(false);
     setScheduledAt(null);
     setScheduleError("");
+    setConfirmedSchedule(null);
     if (videoInputRef.current) videoInputRef.current.value = "";
     if (thumbInputRef.current) thumbInputRef.current.value = "";
+
+    // Navigate: scheduled → instant, publish now → brief processing state
+    if (scheduleEnabled) {
+      setPage("home");
+    } else {
+      setIsPublishing(true);
+      setTimeout(() => {
+        setIsPublishing(false);
+        setPage("home");
+      }, 1500);
+    }
   };
 
   // Step indicator: 1 = no file, 2 = file selected, 3 = has active uploads
   const currentStep = hasActive ? 3 : videoFile ? 2 : 1;
 
   const canUpload =
-    !!videoFile && !!title.trim() && !isFileTooLarge && !durationError;
+    !!videoFile &&
+    !!title.trim() &&
+    !isFileTooLarge &&
+    !durationError &&
+    !isPublishing;
 
   return (
     <motion.div
@@ -665,14 +610,6 @@ export function UploadPage() {
           </div>
         </motion.div>
 
-        {/* Confirmed schedule card — shown after form submit with scheduling */}
-        {confirmedSchedule && (
-          <ScheduleConfirmationCard
-            info={confirmedSchedule}
-            onDismiss={() => setConfirmedSchedule(null)}
-          />
-        )}
-
         {/* Schedule for later */}
         <div className="rounded-xl border border-white/10 bg-[#1A1A1A] overflow-hidden">
           <button
@@ -773,8 +710,19 @@ export function UploadPage() {
           disabled={!canUpload}
           className="w-full bg-orange hover:bg-orange/90 text-white border-none font-semibold"
         >
-          <Plus size={16} className="mr-2" />
-          Add to Upload Queue
+          {isPublishing ? (
+            "Processing..."
+          ) : scheduleEnabled ? (
+            <>
+              <CalendarClock size={16} className="mr-2" />
+              Schedule Premiere
+            </>
+          ) : (
+            <>
+              <Plus size={16} className="mr-2" />
+              Publish Now
+            </>
+          )}
         </Button>
 
         {/* Caption Manager (shown after upload would have been triggered — always visible for creation) */}

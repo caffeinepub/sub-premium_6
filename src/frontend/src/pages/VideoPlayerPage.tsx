@@ -9,6 +9,8 @@ import {
   Captions,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Download,
   Eye,
@@ -18,6 +20,7 @@ import {
   Play,
   Plus,
   SendHorizontal,
+  Settings,
   Share2,
   SkipBack,
   SkipForward,
@@ -103,6 +106,7 @@ export function VideoPlayerPage() {
   const { language: userLang, t } = useI18n();
   const playerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const watchStartRef = useRef<number>(0);
   const lastSaveRef = useRef<number>(0);
@@ -142,7 +146,7 @@ export function VideoPlayerPage() {
   const [nextVideo, setNextVideo] = useState<Video | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // CC state
+  // CC state — defaults to OFF; user must manually enable
   const [ccEnabled, setCcEnabled] = useState(() => {
     try {
       const stored = localStorage.getItem("sp_cc");
@@ -162,6 +166,15 @@ export function VideoPlayerPage() {
     }
   });
 
+  // Settings state
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [liveHasTracks, setLiveHasTracks] = useState(false);
+  const [subtitleSubmenuOpen, setSubtitleSubmenuOpen] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [quality, setQuality] = useState<"Auto" | "480p" | "720p" | "1080p">(
+    "Auto",
+  );
+
   const { data: captionTracks = [] } = useGetCaptionTracks(
     selectedVideo?.id ?? "",
     true,
@@ -171,16 +184,7 @@ export function VideoPlayerPage() {
   const isCreator =
     identity?.getPrincipal().toString() === selectedVideo?.creatorId;
 
-  // Auto-enable CC when tracks load and user has no stored preference
-  useEffect(() => {
-    if (captionTracks.length > 0) {
-      try {
-        if (localStorage.getItem("sp_cc") === null) {
-          setCcEnabled(true);
-        }
-      } catch {}
-    }
-  }, [captionTracks.length]);
+  // NOTE: No auto-enable effect — CC defaults to OFF. User must turn it on.
 
   const activeTrack =
     captionTracks.find((t) => t.language === selectedLang) ??
@@ -214,10 +218,19 @@ export function VideoPlayerPage() {
     const vid = videoRef.current;
     if (!vid) return;
     const tracks = vid.textTracks;
-    if (tracks.length > 0) {
-      tracks[0].mode = ccEnabled ? "showing" : "hidden";
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      if (
+        ccEnabled &&
+        activeTrack &&
+        (t.language === activeTrack.language || tracks.length === 1)
+      ) {
+        t.mode = "showing";
+      } else {
+        t.mode = "hidden";
+      }
     }
-  }, [ccEnabled, activeTrack]);
+  }, [ccEnabled, activeTrack, selectedLang]);
 
   // -------------------------------------------------------------------------
   // Controls timer helpers
@@ -255,6 +268,41 @@ export function VideoPlayerPage() {
         localStorage.setItem("sp_cc", "1");
       } catch {}
     }
+    resetControlsTimer();
+  };
+
+  const handleSettingsSubtitleSelect = (lang: string) => {
+    if (lang === "off") {
+      setCcEnabled(false);
+      try {
+        localStorage.setItem("sp_cc", "0");
+      } catch {}
+    } else {
+      setSelectedLang(lang);
+      try {
+        localStorage.setItem("sp_caption_lang", lang);
+        localStorage.setItem("subtitle_lang", lang);
+      } catch {}
+      setCcEnabled(true);
+      try {
+        localStorage.setItem("sp_cc", "1");
+      } catch {}
+    }
+    setSubtitleSubmenuOpen(false);
+    setSettingsOpen(false);
+    resetControlsTimer();
+  };
+
+  const handleSpeedChange = (speed: number) => {
+    setPlaybackSpeed(speed);
+    if (videoRef.current) videoRef.current.playbackRate = speed;
+    setSettingsOpen(false);
+    resetControlsTimer();
+  };
+
+  const handleQualityChange = (q: "Auto" | "480p" | "720p" | "1080p") => {
+    setQuality(q);
+    setSettingsOpen(false);
     resetControlsTimer();
   };
 
@@ -375,8 +423,17 @@ export function VideoPlayerPage() {
     return null;
   }
 
-  // CRITICAL safety check: never render player for locked upcoming videos
-  if (isUpcoming(selectedVideo)) {
+  // HARD LOCK: never render video player for scheduled/upcoming videos
+  const _scheduledAtRaw = (selectedVideo as any)?.scheduledAt;
+  const _scheduledAtMs = _scheduledAtRaw
+    ? Number(_scheduledAtRaw) / 1_000_000
+    : null;
+  const _isHardLocked =
+    (_scheduledAtMs && _scheduledAtMs > Date.now()) ||
+    (selectedVideo as any)?.status === "scheduled" ||
+    (selectedVideo as any)?.status === "SCHEDULED";
+
+  if (_isHardLocked || isUpcoming(selectedVideo)) {
     setPage("premiere-preview");
     return null;
   }
@@ -470,16 +527,17 @@ export function VideoPlayerPage() {
         );
         resetControlsTimer();
       } else {
-        // single tap: toggle controls
+        // single tap: toggle controls (stale-closure-safe)
+        if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
         setControlsVisible((prev) => {
-          if (!prev) {
-            resetControlsTimer();
-          } else {
-            if (controlsTimerRef.current)
-              clearTimeout(controlsTimerRef.current);
-            setControlsVisible(false);
+          if (prev) {
+            return false;
           }
-          return !prev;
+          controlsTimerRef.current = setTimeout(
+            () => setControlsVisible(false),
+            5000,
+          );
+          return true;
         });
       }
     }, 250);
@@ -542,10 +600,12 @@ export function VideoPlayerPage() {
   };
 
   const handleFullscreen = () => {
-    const el = videoRef.current;
+    const el = videoContainerRef.current;
     if (!el) return;
-    if (el.requestFullscreen) {
+    if (!document.fullscreenElement) {
       el.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
     }
     resetControlsTimer();
   };
@@ -662,7 +722,11 @@ export function VideoPlayerPage() {
       {/* Video Player (true 16:9) */}
       <div ref={playerRef} className="w-full bg-black">
         {/* biome-ignore lint/a11y/useKeyWithClickEvents: video tap area is intentionally click-only */}
-        <div className="relative w-full aspect-video" onClick={handleVideoTap}>
+        <div
+          ref={videoContainerRef}
+          className="relative w-full aspect-video"
+          onClick={handleVideoTap}
+        >
           {videoUrl ? (
             // biome-ignore lint/a11y/useMediaCaption: user-uploaded content
             <video
@@ -689,6 +753,7 @@ export function VideoPlayerPage() {
                 if (d && Number.isFinite(d)) {
                   setVideoDuration(d);
                 }
+                setLiveHasTracks(e.currentTarget.textTracks.length > 0);
               }}
             >
               {activeTrack?.vtt && captionBlobUrlRef.current && (
@@ -696,7 +761,7 @@ export function VideoPlayerPage() {
                   key={captionBlobUrlRef.current}
                   kind="subtitles"
                   src={captionBlobUrlRef.current}
-                  default={ccEnabled}
+                  default={false}
                   label={activeTrack?.captionLabel ?? "Captions"}
                   srcLang={activeTrack?.language ?? "en"}
                 />
@@ -724,94 +789,12 @@ export function VideoPlayerPage() {
               }}
             />
 
-            {/* TOP ROW: CC (left) + Fullscreen (right) */}
+            {/* TOP ROW: Fullscreen (left) + CC + Settings (right) */}
             <div
               className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 pt-3"
               style={{ pointerEvents: controlsVisible ? "auto" : "none" }}
             >
-              {/* CC button */}
-              {hasTracks && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    data-ocid="player.toggle"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (captionTracks.length > 1) {
-                        setLangMenuOpen((o) => !o);
-                        resetControlsTimer();
-                      } else {
-                        toggleCc();
-                      }
-                    }}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${
-                      ccEnabled
-                        ? "bg-black/60 text-white border-white/40"
-                        : "bg-black/40 text-white/50 border-white/20"
-                    }`}
-                    aria-label="Toggle captions"
-                  >
-                    <Captions size={13} />
-                    CC
-                    {captionTracks.length > 1 && (
-                      <ChevronDown size={10} className="ml-0.5" />
-                    )}
-                  </button>
-
-                  {/* Language dropdown — inside overlay */}
-                  <AnimatePresence>
-                    {langMenuOpen && (
-                      <motion.div
-                        data-ocid="player.dropdown_menu"
-                        initial={{ opacity: 0, y: -4, scale: 0.96 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -4, scale: 0.96 }}
-                        transition={{ duration: 0.12 }}
-                        className="absolute top-8 left-0 z-50 bg-black/90 border border-white/20 rounded-xl shadow-lg overflow-hidden min-w-[130px]"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {/* CC on/off toggle row */}
-                        <button
-                          type="button"
-                          onClick={() => toggleCc()}
-                          className="w-full text-left px-3 py-2 text-xs hover:bg-white/10 flex items-center justify-between border-b border-white/10"
-                        >
-                          <span className="text-white/80">Captions</span>
-                          <span
-                            className={`text-[10px] font-bold ${
-                              ccEnabled ? "text-orange-400" : "text-white/40"
-                            }`}
-                          >
-                            {ccEnabled ? "ON" : "OFF"}
-                          </span>
-                        </button>
-                        {captionTracks.map((t) => (
-                          <button
-                            key={t.language}
-                            type="button"
-                            onClick={() => handleLangSelect(t.language)}
-                            className={`w-full text-left px-3 py-2 text-xs hover:bg-white/10 flex items-center justify-between ${
-                              selectedLang === t.language
-                                ? "text-orange-400 font-bold"
-                                : "text-white/80"
-                            }`}
-                          >
-                            {t.captionLabel || t.language}
-                            {selectedLang === t.language && (
-                              <Check size={11} className="text-orange-400" />
-                            )}
-                          </button>
-                        ))}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
-
-              {/* Spacer when no CC */}
-              {!hasTracks && <div />}
-
-              {/* Fullscreen button — circular */}
+              {/* Fullscreen button — top-left */}
               <button
                 type="button"
                 data-ocid="player.button"
@@ -824,6 +807,293 @@ export function VideoPlayerPage() {
               >
                 <Maximize size={16} />
               </button>
+
+              {/* Top-right: CC (if tracks exist) + Settings */}
+              <div className="flex items-center gap-2 relative">
+                {/* CC button — only when real tracks exist */}
+                {(hasTracks || liveHasTracks) && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      data-ocid="player.toggle"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (captionTracks.length > 1) {
+                          setLangMenuOpen((o) => !o);
+                          setSettingsOpen(false);
+                          resetControlsTimer();
+                        } else {
+                          toggleCc();
+                        }
+                      }}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                        ccEnabled
+                          ? "bg-black/60 text-white border-white/40"
+                          : "bg-black/40 text-white/50 border-white/20"
+                      }`}
+                      aria-label="Toggle captions"
+                    >
+                      <Captions size={13} />
+                      CC
+                      {captionTracks.length > 1 && (
+                        <ChevronDown size={10} className="ml-0.5" />
+                      )}
+                    </button>
+
+                    {/* Language dropdown */}
+                    <AnimatePresence>
+                      {langMenuOpen && (
+                        <motion.div
+                          data-ocid="player.dropdown_menu"
+                          initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.96 }}
+                          transition={{ duration: 0.12 }}
+                          className="absolute top-8 right-0 z-50 bg-black/90 border border-white/20 rounded-xl shadow-lg overflow-hidden min-w-[130px]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleCc()}
+                            className="w-full text-left px-3 py-2 text-xs hover:bg-white/10 flex items-center justify-between border-b border-white/10"
+                          >
+                            <span className="text-white/80">Captions</span>
+                            <span
+                              className={`text-[10px] font-bold ${ccEnabled ? "text-orange-400" : "text-white/40"}`}
+                            >
+                              {ccEnabled ? "ON" : "OFF"}
+                            </span>
+                          </button>
+                          {captionTracks.map((t) => (
+                            <button
+                              key={t.language}
+                              type="button"
+                              onClick={() => handleLangSelect(t.language)}
+                              className={`w-full text-left px-3 py-2 text-xs hover:bg-white/10 flex items-center justify-between ${
+                                selectedLang === t.language
+                                  ? "text-orange-400 font-bold"
+                                  : "text-white/80"
+                              }`}
+                            >
+                              {t.captionLabel || t.language}
+                              {selectedLang === t.language && (
+                                <Check size={11} className="text-orange-400" />
+                              )}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+
+                {/* Settings button */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSettingsOpen((o) => !o);
+                      setLangMenuOpen(false);
+                      resetControlsTimer();
+                    }}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center text-white transition-colors ${
+                      settingsOpen
+                        ? "bg-white/20"
+                        : "bg-black/50 hover:bg-black/70"
+                    }`}
+                    aria-label="Settings"
+                  >
+                    <Settings size={16} />
+                  </button>
+
+                  {/* Settings panel */}
+                  <AnimatePresence>
+                    {settingsOpen && (
+                      <>
+                        {/* tap-outside backdrop */}
+                        <div
+                          className="fixed inset-0 z-40"
+                          role="presentation"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSettingsOpen(false);
+                            setSubtitleSubmenuOpen(false);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              e.stopPropagation();
+                              setSettingsOpen(false);
+                              setSubtitleSubmenuOpen(false);
+                            }
+                          }}
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                          transition={{ duration: 0 }}
+                          className="absolute top-10 right-0 z-50 bg-black/95 border border-white/15 rounded-2xl shadow-2xl overflow-hidden w-52"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="px-3 pt-3 pb-1 border-b border-white/10">
+                            <p className="text-xs font-bold text-white tracking-wide">
+                              Settings
+                            </p>
+                          </div>
+                          {/* Playback Speed */}
+                          <div className="px-3 pt-3 pb-1">
+                            <p className="text-[10px] text-white/40 uppercase tracking-widest font-semibold mb-2">
+                              Speed
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {[0.5, 1, 1.25, 1.5, 2].map((s) => (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  onClick={() => handleSpeedChange(s)}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                                    playbackSpeed === s
+                                      ? "bg-orange-500 text-white"
+                                      : "bg-white/10 text-white/70 hover:bg-white/20"
+                                  }`}
+                                >
+                                  {s === 1 ? "1x" : `${s}x`}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {(hasTracks || liveHasTracks) && (
+                            <>
+                              <div className="border-t border-white/10 mx-3 my-2" />
+                              {!subtitleSubmenuOpen ? (
+                                <div className="px-3 pb-2">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSubtitleSubmenuOpen(true);
+                                      resetControlsTimer();
+                                    }}
+                                    className="w-full flex items-center justify-between py-1 text-white/80 hover:text-white transition-colors"
+                                  >
+                                    <span className="text-[10px] uppercase tracking-widest font-semibold text-white/40">
+                                      Subtitles
+                                    </span>
+                                    <span className="flex items-center gap-1 text-xs font-semibold text-white/70">
+                                      {ccEnabled
+                                        ? captionTracks.find(
+                                            (t) => t.language === selectedLang,
+                                          )?.captionLabel ||
+                                          captionTracks.find(
+                                            (t) => t.language === selectedLang,
+                                          )?.language ||
+                                          selectedLang
+                                        : "Off"}
+                                      <ChevronRight
+                                        size={12}
+                                        className="text-white/40"
+                                      />
+                                    </span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="px-3 pb-2">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSubtitleSubmenuOpen(false);
+                                      }}
+                                      className="w-5 h-5 flex items-center justify-center text-white/60 hover:text-white transition-colors"
+                                    >
+                                      <ChevronLeft size={14} />
+                                    </button>
+                                    <p className="text-[10px] text-white/40 uppercase tracking-widest font-semibold">
+                                      Subtitles
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleSettingsSubtitleSelect("off")
+                                      }
+                                      className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                        !ccEnabled
+                                          ? "bg-orange-500 text-white"
+                                          : "bg-white/10 text-white/70 hover:bg-white/20"
+                                      }`}
+                                    >
+                                      <span>Off</span>
+                                      {!ccEnabled && <Check size={12} />}
+                                    </button>
+                                    {captionTracks.map((track) => {
+                                      const trackLabel =
+                                        track.captionLabel || track.language;
+                                      const isActive =
+                                        ccEnabled &&
+                                        selectedLang === track.language;
+                                      return (
+                                        <button
+                                          key={track.language}
+                                          type="button"
+                                          onClick={() =>
+                                            handleSettingsSubtitleSelect(
+                                              track.language,
+                                            )
+                                          }
+                                          className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                            isActive
+                                              ? "bg-orange-500 text-white"
+                                              : "bg-white/10 text-white/70 hover:bg-white/20"
+                                          }`}
+                                        >
+                                          <span>{trackLabel}</span>
+                                          {isActive && <Check size={12} />}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
+
+                          <div className="border-t border-white/10 mx-3 my-2" />
+
+                          {/* Quality */}
+                          <div className="px-3 pb-3">
+                            <p className="text-[10px] text-white/40 uppercase tracking-widest font-semibold mb-2">
+                              Quality
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {(["Auto", "480p", "720p", "1080p"] as const).map(
+                                (q) => (
+                                  <button
+                                    key={q}
+                                    type="button"
+                                    onClick={() => handleQualityChange(q)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                                      quality === q
+                                        ? "bg-orange-500 text-white"
+                                        : "bg-white/10 text-white/70 hover:bg-white/20"
+                                    }`}
+                                  >
+                                    {q}
+                                  </button>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
             </div>
 
             {/* CENTER ROW: ⏮ Play/Pause ⏭ */}

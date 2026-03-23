@@ -1,24 +1,30 @@
 # SUB PREMIUM
 
 ## Current State
-PremierePreviewPage shows a countdown for scheduled (Upcoming) videos with a Subscribe button. App.tsx checks scheduled videos every 60s and fires a toast when they go live. Reminders are not yet implemented.
+VideoPlayerPage.tsx has a working settings panel (⚙️) with Speed, Subtitles (conditional), and Quality sections. The panel uses framer-motion animation (duration: 0.15). Fullscreen targets the `<video>` element via `videoRef`. `hasTracks` is derived from `captionTracks` (backend query). The fullscreen button is top-left, CC + Settings top-right.
 
 ## Requested Changes (Diff)
 
 ### Add
-- `reminderUtils.ts` — localStorage-based per-user reminder store: setReminder, removeReminder, hasReminder, getRemindersForVideo
-- Set Reminder / Reminder Set toggle button on PremierePreviewPage (bell icon, only shown for upcoming/not-yet-live videos)
-- When countdown hits 0, check localStorage reminders and fire toast: "Video is now live" for each subscribed user
-- Login prompt if user is not authenticated and taps Set Reminder
+- A `videoContainerRef` (RefObject<HTMLDivElement>) on the `div.relative.w-full.aspect-video` element
+- A `liveHasTracks` state (boolean) that reads from `videoRef.current.textTracks.length > 0` after video loads (on `onLoadedMetadata`), updated in state — use this as the condition for CC button and settings subtitles section in addition to existing `hasTracks`
 
 ### Modify
-- `PremierePreviewPage.tsx` — add reminder button UI and logic
-- `App.tsx` — extend the 60s scheduler to also check reminder entries and fire notifications
+1. **Settings panel animation**: Change `transition={{ duration: 0.15 }}` on the settings panel `motion.div` to `transition={{ duration: 0 }}` so it opens instantly with no delay.
+2. **Fullscreen handler**: Change `handleFullscreen` to target `videoContainerRef.current` (the aspect-video div) instead of `videoRef.current`. This ensures controls overlay is included in fullscreen. Keep same API: `requestFullscreen()` / `exitFullscreen()`.
+3. **hasTracks check**: The condition `{hasTracks && (...)}` for both the CC button and the subtitles section in settings should use `hasTracks || liveHasTracks` so real text tracks loaded natively are also detected.
+4. **Subtitle submenu tracks**: When showing the subtitle language list in the submenu, also pull from `videoRef.current?.textTracks` to detect any natively-loaded tracks not in `captionTracks`. Merge both sources (deduplicate by language code).
+5. **Settings panel title**: Add a "Settings" header row at the top of the settings panel (text: "Settings", small, white/60, uppercase tracking-wide) to make it clear this is the settings panel.
 
 ### Remove
-- Nothing
+- Nothing to remove
 
 ## Implementation Plan
-1. Create `src/frontend/src/utils/reminderUtils.ts` with get/set/remove/check helpers (key: `reminders_<principalOrAnon>_<videoId>`)
-2. Update `PremierePreviewPage.tsx` — add Bell icon button below the premiere info card; toggle state; if not logged in, show login prompt toast
-3. Update `App.tsx` checkScheduled loop — when a video goes live, also check if current user has a reminder and fire a distinct toast ("🔔 Video is now live")
+1. Add `videoContainerRef = useRef<HTMLDivElement>(null)` near other refs
+2. Add `liveHasTracks` state, set it in `onLoadedMetadata` handler by checking `e.currentTarget.textTracks.length > 0`
+3. Attach `ref={videoContainerRef}` to the `div.relative.w-full.aspect-video`
+4. Update `handleFullscreen` to use `videoContainerRef.current`
+5. Change settings panel `motion.div` transition duration to 0
+6. Add "Settings" label at top of settings panel content
+7. Update all `hasTracks` checks to `hasTracks || liveHasTracks`
+8. In subtitle submenu, merge `captionTracks` with live `videoRef.current.textTracks` array

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import type {
   CaptionTrack,
   UserProfile,
@@ -16,6 +17,40 @@ import {
 } from "../utils/subscriptions";
 import { useActor } from "./useActor";
 import { useInternetIdentity } from "./useInternetIdentity";
+
+// ── localStorage profile cache helpers ──────────────────────────────────────
+const PROFILE_CACHE_KEY = "subpremium_profile_cache";
+
+function getCachedProfile(principalId: string): UserProfile | null {
+  try {
+    const raw = localStorage.getItem(`${PROFILE_CACHE_KEY}_${principalId}`);
+    if (!raw) return null;
+    return JSON.parse(raw) as UserProfile;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedProfile(principalId: string, profile: UserProfile) {
+  try {
+    localStorage.setItem(
+      `${PROFILE_CACHE_KEY}_${principalId}`,
+      JSON.stringify(profile),
+    );
+  } catch {
+    /* non-critical */
+  }
+}
+
+export function clearCachedProfile(principalId: string) {
+  try {
+    localStorage.removeItem(`${PROFILE_CACHE_KEY}_${principalId}`);
+  } catch {
+    /* non-critical */
+  }
+}
+
+// ── Queries ──────────────────────────────────────────────────────────────────
 
 export function useListVideos(searchTerm?: string) {
   const { actor, isFetching } = useActor();
@@ -47,15 +82,31 @@ export function useWatchHistory() {
 
 export function useUserProfile() {
   const { actor, isFetching } = useActor();
+  const { identity } = useInternetIdentity();
+  const principalId = identity?.getPrincipal().toString() ?? "";
+
   const query = useQuery<UserProfile | null>({
-    queryKey: ["userProfile"],
+    queryKey: ["userProfile", principalId],
     queryFn: async () => {
       if (!actor) throw new Error("Actor not available");
-      return actor.getCallerUserProfile();
+      const serverProfile = await actor.getCallerUserProfile();
+      // Server is the source of truth — cache the result
+      if (serverProfile && principalId) {
+        setCachedProfile(principalId, serverProfile);
+      }
+      return serverProfile ?? null;
     },
-    enabled: !!actor && !isFetching,
-    retry: false,
+    // Seed from localStorage while waiting for server
+    placeholderData: () => {
+      if (!principalId) return null;
+      return getCachedProfile(principalId);
+    },
+    enabled: !!actor && !isFetching && !!principalId,
+    staleTime: 30_000,
+    gcTime: 300_000,
+    retry: 2,
   });
+
   return {
     ...query,
     isLoading: isFetching || query.isLoading,
@@ -75,17 +126,61 @@ export function useSettings() {
   });
 }
 
+// Retry helper: attempt fn up to maxAttempts times with exponential backoff
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 800 * attempt));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export function useSaveProfile() {
   const { actor } = useActor();
   const { identity } = useInternetIdentity();
   const qc = useQueryClient();
+  const principalId = identity?.getPrincipal().toString() ?? "";
+
   return useMutation({
     mutationFn: async (profile: UserProfile) => {
       if (!identity) throw new Error("Not authenticated — please log in first");
       if (!actor) throw new Error("Actor not ready");
-      await actor.saveCallerUserProfile(profile);
+      // Safety: never save a fully-empty profile over existing data
+      const allEmpty =
+        !profile.displayName.trim() &&
+        !profile.username.trim() &&
+        !profile.bio.trim() &&
+        !profile.avatarBlobId.trim();
+      if (allEmpty) {
+        throw new Error(
+          "Profile has no data to save. Fill in at least your display name.",
+        );
+      }
+      await withRetry(() => actor.saveCallerUserProfile(profile));
+      // Update local cache immediately after confirmed server write
+      if (principalId) setCachedProfile(principalId, profile);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["userProfile"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["userProfile"] });
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Failed to save profile";
+      const friendly = msg.includes("Not authenticated")
+        ? "Session expired — please log in again."
+        : msg.includes("Actor not ready")
+          ? "Network not ready — please try again."
+          : msg.includes("no data to save")
+            ? msg
+            : `Save failed: ${msg}. Your changes were not lost — try saving again.`;
+      toast.error(friendly, { duration: 6000 });
+    },
   });
 }
 
@@ -121,7 +216,6 @@ export function useIncrementViews() {
       if (!actor) return;
       await actor.incrementViews(videoId);
     },
-    // Refresh video list after view increment so real count shows immediately
     onSuccess: () => qc.invalidateQueries({ queryKey: ["videos"] }),
   });
 }
@@ -221,7 +315,6 @@ export function useRemoveCaptionTrack() {
 
 // ── Subscription hooks (localStorage-backed) ────────────────────────────────
 
-/** Get subscriber count for a creator (local approximation) */
 export function useSubscriberCount(creatorId: string | null) {
   return useQuery<number>({
     queryKey: ["subscriberCount", creatorId ?? ""],
@@ -231,7 +324,6 @@ export function useSubscriberCount(creatorId: string | null) {
   });
 }
 
-/** Check if current user is subscribed to a creator */
 export function useIsSubscribed(creatorId: string | null) {
   return useQuery<boolean>({
     queryKey: ["isSubscribed", creatorId ?? ""],
@@ -241,7 +333,6 @@ export function useIsSubscribed(creatorId: string | null) {
   });
 }
 
-/** Get public profile for any user */
 export function usePublicProfile(creatorId: string | null) {
   const { actor, isFetching } = useActor();
   return useQuery<UserProfile | null>({
@@ -249,7 +340,6 @@ export function usePublicProfile(creatorId: string | null) {
     queryFn: async () => {
       if (!actor || !creatorId) return null;
       try {
-        // Use getUserProfile with Principal
         const { Principal } = await import("@icp-sdk/core/principal");
         const principal = Principal.fromText(creatorId);
         return actor.getUserProfile(principal);
@@ -262,7 +352,6 @@ export function usePublicProfile(creatorId: string | null) {
   });
 }
 
-/** Get all videos by a creator principal string */
 export function useVideosByCreator(creatorId: string | null) {
   const { actor, isFetching } = useActor();
   return useQuery<Video[]>({
@@ -279,7 +368,6 @@ export function useVideosByCreator(creatorId: string | null) {
   });
 }
 
-/** Get subscriptions list (local) */
 export function useSubscriptions() {
   return useQuery<string[]>({
     queryKey: ["subscriptions"],
@@ -288,7 +376,6 @@ export function useSubscriptions() {
   });
 }
 
-/** Subscribe to a creator */
 export function useSubscribe() {
   const qc = useQueryClient();
   return useMutation({
@@ -303,7 +390,6 @@ export function useSubscribe() {
   });
 }
 
-/** Unsubscribe from a creator */
 export function useUnsubscribe() {
   const qc = useQueryClient();
   return useMutation({
@@ -318,13 +404,11 @@ export function useUnsubscribe() {
   });
 }
 
-/** Initialize local subscriber count for own profile (seed from 0 if never set) */
 export function useInitSubscriberCount(creatorId: string | null) {
   useQuery({
     queryKey: ["initSubCount", creatorId ?? ""],
     queryFn: () => {
       if (!creatorId) return null;
-      // Only init if not set
       const stored = localStorage.getItem(`sub_subcount_${creatorId}`);
       if (stored === null) {
         setLocalSubscriberCount(creatorId, 0);
