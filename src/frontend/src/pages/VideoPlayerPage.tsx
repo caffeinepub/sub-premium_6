@@ -159,6 +159,7 @@ export function VideoPlayerPage() {
   );
   const [nextVideo, setNextVideo] = useState<Video | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const translationTaskRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // CC state — defaults to OFF; user must manually enable
   const [ccEnabled, setCcEnabled] = useState(() => {
@@ -182,6 +183,13 @@ export function VideoPlayerPage() {
 
   const [detectedLang, setDetectedLang] = useState("en");
   const [translating, setTranslating] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => {
+    try {
+      return navigator.onLine;
+    } catch {
+      return true;
+    }
+  });
   const [suggestionBanner, setSuggestionBanner] = useState<{
     videoLang: string;
     preferredLang: string | null;
@@ -196,10 +204,9 @@ export function VideoPlayerPage() {
     "Auto",
   );
 
-  const { data: captionTracks = [] } = useGetCaptionTracks(
-    selectedVideo?.id ?? "",
-    true,
-  );
+  const { data: captionTracks = [], isError: captionTracksError } =
+    useGetCaptionTracks(selectedVideo?.id ?? "", true);
+  const [captionsError, setCaptionsError] = useState(false);
 
   const hasTracks = captionTracks.length > 0;
   const isCreator =
@@ -283,6 +290,13 @@ export function VideoPlayerPage() {
       });
       setDetectedLang(lang);
 
+      // Reset subtitle state on every new video load
+      if (translationTaskRef.current) {
+        clearTimeout(translationTaskRef.current);
+        translationTaskRef.current = null;
+      }
+      setTranslating(false);
+      setCaptionsError(false);
       // Always reset CC to OFF on every new video load
       setCcEnabled(false);
       try {
@@ -304,6 +318,26 @@ export function VideoPlayerPage() {
       setSuggestionBanner({ videoLang: lang, preferredLang: pref });
     }
   }, [selectedVideo?.id]);
+
+  // captionsError effect
+  useEffect(() => {
+    if (captionTracksError) setCaptionsError(true);
+  }, [captionTracksError]);
+
+  // Online/offline listener
+  useEffect(() => {
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => {
+      setIsOnline(false);
+      toast("No internet connection");
+    };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
   // Controls timer helpers
   // -------------------------------------------------------------------------
   const resetControlsTimer = () => {
@@ -359,20 +393,38 @@ export function VideoPlayerPage() {
       resetControlsTimer();
       return;
     }
+    // Offline guard: block translation for non-local tracks
+    const isLocalTrack = captionTracks.some(
+      (t) => t.language === lang && t.vtt,
+    );
+    if (!isOnline && !isLocalTrack) {
+      toast("No internet connection — translation unavailable");
+      setSubtitleSubmenuOpen(false);
+      setSettingsOpen(false);
+      resetControlsTimer();
+      return;
+    }
+    // Cancel any pending translation task
+    if (translationTaskRef.current) clearTimeout(translationTaskRef.current);
     setTranslating(true);
-    setTimeout(() => {
-      setSelectedLang(lang);
+    translationTaskRef.current = setTimeout(() => {
       try {
-        localStorage.setItem("sp_caption_lang", lang);
-        localStorage.setItem("subtitle_lang", lang);
-        localStorage.setItem("subtitlePreference", lang);
-      } catch {}
-      setCcEnabled(true);
-      try {
-        localStorage.setItem("sp_cc", "1");
-      } catch {}
-      setTranslating(false);
-      setSuggestionBanner(null);
+        setSelectedLang(lang);
+        try {
+          localStorage.setItem("sp_caption_lang", lang);
+          localStorage.setItem("subtitle_lang", lang);
+          localStorage.setItem("subtitlePreference", lang);
+        } catch {}
+        setCcEnabled(true);
+        try {
+          localStorage.setItem("sp_cc", "1");
+        } catch {}
+        setSuggestionBanner(null);
+      } catch {
+        toast.error("Translation failed. Previous subtitles kept.");
+      } finally {
+        setTranslating(false);
+      }
     }, 600);
     setSubtitleSubmenuOpen(false);
     setSettingsOpen(false);
@@ -1233,7 +1285,16 @@ export function VideoPlayerPage() {
                     {/* Subtitles — always shown */}
                     <>
                       <div className="border-t border-white/10 mx-3 my-2" />
-                      {!(hasTracks || liveHasTracks) ? (
+                      {captionsError ? (
+                        <div className="px-3 pb-2">
+                          <p className="text-[10px] uppercase tracking-widest font-semibold text-white/40 mb-1.5">
+                            Subtitles
+                          </p>
+                          <p className="text-xs text-red-400/80 italic mb-2">
+                            Captions unavailable
+                          </p>
+                        </div>
+                      ) : !(hasTracks || liveHasTracks) ? (
                         <div className="px-3 pb-2">
                           <p className="text-[10px] uppercase tracking-widest font-semibold text-white/40 mb-1.5">
                             Subtitles
