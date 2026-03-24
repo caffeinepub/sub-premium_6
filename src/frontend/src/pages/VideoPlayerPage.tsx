@@ -182,6 +182,10 @@ export function VideoPlayerPage() {
 
   const [detectedLang, setDetectedLang] = useState("en");
   const [translating, setTranslating] = useState(false);
+  const [suggestionBanner, setSuggestionBanner] = useState<{
+    videoLang: string;
+    preferredLang: string | null;
+  } | null>(null);
 
   // Settings state
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -278,6 +282,26 @@ export function VideoPlayerPage() {
         description: (selectedVideo as any).description,
       });
       setDetectedLang(lang);
+
+      // Always reset CC to OFF on every new video load
+      setCcEnabled(false);
+      try {
+        localStorage.setItem("sp_cc", "0");
+      } catch {}
+
+      // Smart suggestion: compare detected lang to user's preferred subtitle language
+      const pref = (() => {
+        try {
+          return (
+            localStorage.getItem("subtitlePreference") ||
+            localStorage.getItem("subtitle_lang") ||
+            null
+          );
+        } catch {
+          return null;
+        }
+      })();
+      setSuggestionBanner({ videoLang: lang, preferredLang: pref });
     }
   }, [selectedVideo?.id]);
   // Controls timer helpers
@@ -292,6 +316,12 @@ export function VideoPlayerPage() {
   };
 
   const toggleCc = () => {
+    const hasAnyTracks = hasTracks || liveHasTracks;
+    if (!hasAnyTracks) {
+      toast("No captions available");
+      resetControlsTimer();
+      return;
+    }
     setCcEnabled((prev) => {
       const next = !prev;
       try {
@@ -335,12 +365,14 @@ export function VideoPlayerPage() {
       try {
         localStorage.setItem("sp_caption_lang", lang);
         localStorage.setItem("subtitle_lang", lang);
+        localStorage.setItem("subtitlePreference", lang);
       } catch {}
       setCcEnabled(true);
       try {
         localStorage.setItem("sp_cc", "1");
       } catch {}
       setTranslating(false);
+      setSuggestionBanner(null);
     }, 600);
     setSubtitleSubmenuOpen(false);
     setSettingsOpen(false);
@@ -1008,19 +1040,8 @@ export function VideoPlayerPage() {
                 data-ocid="player.toggle"
                 onClick={(e) => {
                   e.stopPropagation();
-                  const hasAnyTracks = hasTracks || liveHasTracks;
-                  if (!hasAnyTracks) {
-                    toast("No captions available");
-                    resetControlsTimer();
-                    return;
-                  }
-                  if (captionTracks.length > 1) {
-                    setLangMenuOpen((o) => !o);
-                    setSettingsOpen(false);
-                    resetControlsTimer();
-                  } else {
-                    toggleCc();
-                  }
+                  toggleCc();
+                  setLangMenuOpen(false);
                 }}
                 className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
                   hasTracks || liveHasTracks
@@ -1276,77 +1297,110 @@ export function VideoPlayerPage() {
                             </p>
                           </div>
                           <div className="flex flex-col gap-1">
-                            {/* Auto (Detected language) entry */}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleSettingsSubtitleSelect(detectedLang)
-                              }
-                              className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                ccEnabled && selectedLang === detectedLang
-                                  ? "bg-orange-500 text-white"
-                                  : "bg-white/10 text-white/70 hover:bg-white/20"
-                              }`}
-                            >
-                              <span className="truncate mr-2">
-                                {getAutoLabel(detectedLang)}
-                              </span>
-                              {ccEnabled && selectedLang === detectedLang && (
-                                <Check size={12} />
-                              )}
-                            </button>
-                            {/* Off option */}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleSettingsSubtitleSelect("off")
-                              }
-                              className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                !ccEnabled
-                                  ? "bg-orange-500 text-white"
-                                  : "bg-white/10 text-white/70 hover:bg-white/20"
-                              }`}
-                            >
-                              <span>Off</span>
-                              {!ccEnabled && <Check size={12} />}
-                            </button>
-                            {/* Divider */}
-                            <div className="border-t border-white/10 my-1" />
-                            <p className="text-[10px] text-white/30 uppercase tracking-widest px-1 mb-1">
-                              Translated
-                            </p>
-                            {/* All supported languages */}
-                            {SUPPORTED_LANGUAGES.map((lang) => {
-                              const hasTrack = captionTracks.some(
-                                (t) => t.language === lang.code,
-                              );
-                              const isActive =
-                                ccEnabled && selectedLang === lang.code;
+                            {(() => {
+                              const pref = (() => {
+                                try {
+                                  return (
+                                    localStorage.getItem(
+                                      "subtitlePreference",
+                                    ) ||
+                                    localStorage.getItem("subtitle_lang") ||
+                                    null
+                                  );
+                                } catch {
+                                  return null;
+                                }
+                              })();
+                              const standardLangs = [
+                                { code: "en", label: "English" },
+                                { code: "hi", label: "Hindi" },
+                                { code: "ar", label: "Arabic" },
+                                { code: "es", label: "Spanish" },
+                                { code: "fr", label: "French" },
+                                { code: "zh", label: "Chinese" },
+                              ];
                               return (
-                                <button
-                                  key={lang.code}
-                                  type="button"
-                                  onClick={() =>
-                                    handleSettingsSubtitleSelect(lang.code)
-                                  }
-                                  className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                    isActive
-                                      ? "bg-orange-500 text-white"
-                                      : "bg-white/10 text-white/70 hover:bg-white/20"
-                                  }`}
-                                >
-                                  <span className="flex items-center gap-1.5">
-                                    {lang.label}
-                                    {hasTrack && (
-                                      <span className="text-[9px] bg-orange-500/30 text-orange-300 px-1 rounded">
-                                        VTT
+                                <>
+                                  {/* Off */}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleSettingsSubtitleSelect("off")
+                                    }
+                                    className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                      !ccEnabled
+                                        ? "bg-orange-500 text-white"
+                                        : "bg-white/10 text-white/70 hover:bg-white/20"
+                                    }`}
+                                  >
+                                    <span>Off</span>
+                                    {!ccEnabled && <Check size={12} />}
+                                  </button>
+                                  {/* Original (Detected language) */}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleSettingsSubtitleSelect(detectedLang)
+                                    }
+                                    className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                      ccEnabled && selectedLang === detectedLang
+                                        ? "bg-orange-500 text-white"
+                                        : "bg-white/10 text-white/70 hover:bg-white/20"
+                                    }`}
+                                  >
+                                    <span className="flex items-center gap-1.5 truncate mr-2">
+                                      Original
+                                      <span className="text-[9px] text-white/50 font-normal">
+                                        ({getLangLabel(detectedLang)})
                                       </span>
-                                    )}
-                                  </span>
-                                  {isActive && <Check size={12} />}
-                                </button>
+                                    </span>
+                                    {ccEnabled &&
+                                      selectedLang === detectedLang && (
+                                        <Check size={12} />
+                                      )}
+                                  </button>
+                                  <div className="border-t border-white/10 my-1" />
+                                  {/* Standard language list */}
+                                  {standardLangs.map((lang) => {
+                                    const hasTrack = captionTracks.some(
+                                      (t) => t.language === lang.code,
+                                    );
+                                    const isActive =
+                                      ccEnabled && selectedLang === lang.code;
+                                    const isPreferred = pref === lang.code;
+                                    return (
+                                      <button
+                                        key={lang.code}
+                                        type="button"
+                                        onClick={() =>
+                                          handleSettingsSubtitleSelect(
+                                            lang.code,
+                                          )
+                                        }
+                                        className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                          isActive
+                                            ? "bg-orange-500 text-white"
+                                            : "bg-white/10 text-white/70 hover:bg-white/20"
+                                        }`}
+                                      >
+                                        <span className="flex items-center gap-1.5">
+                                          {isPreferred && !isActive && (
+                                            <span className="w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" />
+                                          )}
+                                          {lang.label}
+                                          {hasTrack && (
+                                            <span className="text-[9px] bg-orange-500/30 text-orange-300 px-1 rounded">
+                                              VTT
+                                            </span>
+                                          )}
+                                        </span>
+                                        {isActive && <Check size={12} />}
+                                      </button>
+                                    );
+                                  })}
+                                </>
                               );
-                            })}
+                            })()}
                           </div>
                         </div>
                       )}
@@ -1563,6 +1617,70 @@ export function VideoPlayerPage() {
             </span>
           )}
         </button>
+
+        {/* Smart Suggestion Banner */}
+        {suggestionBanner && !ccEnabled && (
+          <div data-ocid="player.card" className="mx-0 mt-0 mb-1">
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-[#1e1e1e] border border-white/10"
+            >
+              <span className="text-xs text-white/75 leading-snug flex-1">
+                {suggestionBanner.preferredLang &&
+                suggestionBanner.preferredLang !== suggestionBanner.videoLang
+                  ? `This video is in ${getLangLabel(suggestionBanner.videoLang)}. Watch with ${getLangLabel(suggestionBanner.preferredLang)} subtitles?`
+                  : `This video is in ${getLangLabel(suggestionBanner.videoLang)}. Enable subtitles?`}
+              </span>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <button
+                  type="button"
+                  data-ocid="player.primary_button"
+                  onClick={() => {
+                    const lang =
+                      suggestionBanner.preferredLang &&
+                      suggestionBanner.preferredLang !==
+                        suggestionBanner.videoLang
+                        ? suggestionBanner.preferredLang
+                        : suggestionBanner.videoLang;
+                    setTranslating(true);
+                    setTimeout(() => {
+                      setSelectedLang(lang);
+                      try {
+                        localStorage.setItem("sp_caption_lang", lang);
+                        localStorage.setItem("subtitle_lang", lang);
+                        localStorage.setItem("subtitlePreference", lang);
+                        localStorage.setItem("sp_cc", "1");
+                      } catch {}
+                      setCcEnabled(true);
+                      setTranslating(false);
+                      setSuggestionBanner(null);
+                    }, 600);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-orange-500 text-white text-xs font-semibold hover:bg-orange-400 transition-colors"
+                >
+                  Enable{" "}
+                  {suggestionBanner.preferredLang &&
+                  suggestionBanner.preferredLang !== suggestionBanner.videoLang
+                    ? getLangLabel(suggestionBanner.preferredLang)
+                    : getLangLabel(suggestionBanner.videoLang)}{" "}
+                  Subtitles
+                </button>
+                <button
+                  type="button"
+                  data-ocid="player.close_button"
+                  onClick={() => setSuggestionBanner(null)}
+                  className="w-6 h-6 flex items-center justify-center text-white/40 hover:text-white/70 transition-colors"
+                  aria-label="Dismiss"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
 
         {/* No-captions strip — only visible to the creator */}
         {!hasTracks && isCreator && (
