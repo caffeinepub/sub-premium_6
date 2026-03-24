@@ -804,95 +804,6 @@ export function VideoPlayerPage() {
               }}
             />
 
-            {/* TOP ROW: CC + Settings (right) */}
-            <div
-              className="absolute top-0 left-0 right-0 flex items-center justify-end px-3 pt-3"
-              style={{
-                pointerEvents: controlsVisible ? "auto" : "none",
-                zIndex: 20,
-              }}
-            >
-              {/* Top-right: CC (if tracks exist) + Settings */}
-              <div className="flex items-center gap-2 relative">
-                {/* CC button — only when real tracks exist */}
-                {(hasTracks || liveHasTracks) && (
-                  <div className="relative">
-                    <button
-                      type="button"
-                      data-ocid="player.toggle"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (captionTracks.length > 1) {
-                          setLangMenuOpen((o) => !o);
-                          setSettingsOpen(false);
-                          resetControlsTimer();
-                        } else {
-                          toggleCc();
-                        }
-                      }}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${
-                        ccEnabled
-                          ? "bg-black/60 text-white border-white/40"
-                          : "bg-black/40 text-white/50 border-white/20"
-                      }`}
-                      aria-label="Toggle captions"
-                    >
-                      <Captions size={13} />
-                      CC
-                      {captionTracks.length > 1 && (
-                        <ChevronDown size={10} className="ml-0.5" />
-                      )}
-                    </button>
-
-                    {/* Language dropdown */}
-                    <AnimatePresence>
-                      {langMenuOpen && (
-                        <motion.div
-                          data-ocid="player.dropdown_menu"
-                          initial={{ opacity: 0, y: -4, scale: 0.96 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -4, scale: 0.96 }}
-                          transition={{ duration: 0.12 }}
-                          className="absolute top-8 right-0 z-50 bg-black/90 border border-white/20 rounded-xl shadow-lg overflow-hidden min-w-[130px]"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => toggleCc()}
-                            className="w-full text-left px-3 py-2 text-xs hover:bg-white/10 flex items-center justify-between border-b border-white/10"
-                          >
-                            <span className="text-white/80">Captions</span>
-                            <span
-                              className={`text-[10px] font-bold ${ccEnabled ? "text-orange-400" : "text-white/40"}`}
-                            >
-                              {ccEnabled ? "ON" : "OFF"}
-                            </span>
-                          </button>
-                          {captionTracks.map((t) => (
-                            <button
-                              key={t.language}
-                              type="button"
-                              onClick={() => handleLangSelect(t.language)}
-                              className={`w-full text-left px-3 py-2 text-xs hover:bg-white/10 flex items-center justify-between ${
-                                selectedLang === t.language
-                                  ? "text-orange-400 font-bold"
-                                  : "text-white/80"
-                              }`}
-                            >
-                              {t.captionLabel || t.language}
-                              {selectedLang === t.language && (
-                                <Check size={11} className="text-orange-400" />
-                              )}
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                )}
-              </div>
-            </div>
-
             {/* CENTER ROW: ⏮ Play/Pause ⏭ */}
             <div
               className="absolute inset-0 flex items-center justify-center gap-10"
@@ -1030,11 +941,114 @@ export function VideoPlayerPage() {
           </div>
           {/* END CONTROLS OVERLAY */}
 
-          {/* Settings button — standalone always-interactive layer */}
+          {/* CC + Settings — standalone always-interactive layer */}
           <div
-            className="absolute top-3 right-3"
+            className="absolute top-3 right-3 flex items-center gap-2"
             style={{ zIndex: 30, pointerEvents: "auto" }}
           >
+            {/* CC button — only when real tracks exist */}
+            {(hasTracks || liveHasTracks) && (
+              <div className="relative">
+                <button
+                  type="button"
+                  data-ocid="player.toggle"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (captionTracks.length > 1) {
+                      setLangMenuOpen((o) => !o);
+                      setSettingsOpen(false);
+                      resetControlsTimer();
+                    } else {
+                      toggleCc();
+                    }
+                  }}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                    ccEnabled
+                      ? "bg-orange-500/90 text-white border-orange-400/60"
+                      : "bg-black/60 text-white/70 border-white/20 hover:border-white/40"
+                  }`}
+                  aria-label="Toggle captions"
+                >
+                  <Captions size={13} />
+                  CC
+                  {captionTracks.length > 1 && (
+                    <ChevronDown size={10} className="ml-0.5" />
+                  )}
+                </button>
+
+                {/* Language dropdown */}
+                <AnimatePresence>
+                  {langMenuOpen && (
+                    <>
+                      {/* Click-outside backdrop for lang menu */}
+                      <div
+                        className="fixed inset-0"
+                        style={{ zIndex: 45 }}
+                        role="presentation"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLangMenuOpen(false);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            e.stopPropagation();
+                            setLangMenuOpen(false);
+                          }
+                        }}
+                      />
+                      <motion.div
+                        data-ocid="player.dropdown_menu"
+                        initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -4, scale: 0.96 }}
+                        transition={{ duration: 0.12 }}
+                        className="absolute top-9 right-0 bg-black/95 border border-white/20 rounded-xl shadow-lg overflow-hidden min-w-[140px]"
+                        style={{ zIndex: 50 }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            toggleCc();
+                            setLangMenuOpen(false);
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-white/10 flex items-center justify-between border-b border-white/10"
+                        >
+                          <span className="text-white/80">Captions</span>
+                          <span
+                            className={`text-[10px] font-bold ${ccEnabled ? "text-orange-400" : "text-white/40"}`}
+                          >
+                            {ccEnabled ? "ON" : "OFF"}
+                          </span>
+                        </button>
+                        {captionTracks.map((t) => (
+                          <button
+                            key={t.language}
+                            type="button"
+                            onClick={() => {
+                              handleLangSelect(t.language);
+                              setLangMenuOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 text-xs hover:bg-white/10 flex items-center justify-between ${
+                              ccEnabled && selectedLang === t.language
+                                ? "text-orange-400 font-bold"
+                                : "text-white/80"
+                            }`}
+                          >
+                            {t.captionLabel || t.language}
+                            {ccEnabled && selectedLang === t.language && (
+                              <Check size={11} className="text-orange-400" />
+                            )}
+                          </button>
+                        ))}
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {/* Settings button */}
             <button
               type="button"
               onClick={(e) => {
