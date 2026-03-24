@@ -7,6 +7,7 @@ import type {
   Video,
   VideoView,
 } from "../backend";
+import type { backendInterface as BackendFull } from "../backend.d";
 import {
   getLocalSubscriberCount,
   getSubscriptions,
@@ -417,5 +418,93 @@ export function useInitSubscriberCount(creatorId: string | null) {
     },
     enabled: !!creatorId,
     staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+// ── Engagement hooks ─────────────────────────────────────────────────────────
+
+export function useVideoEngagement(videoId: string | null) {
+  const { actor, isFetching } = useActor();
+  const { identity } = useInternetIdentity();
+  return useQuery({
+    queryKey: ["engagement", videoId ?? ""],
+    queryFn: async () => {
+      if (!actor || !videoId) return null;
+      return (actor as unknown as BackendFull).getVideoEngagement(videoId);
+    },
+    enabled: !!videoId && !!actor && !isFetching && !!identity,
+    staleTime: 10_000,
+  });
+}
+
+export function useRecordView() {
+  const { actor } = useActor();
+  return useMutation({
+    mutationFn: async (videoId: string) => {
+      if (!actor) return;
+      await (actor as unknown as BackendFull).recordView(videoId);
+    },
+  });
+}
+
+export function useLikeVideo() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (videoId: string) => {
+      if (!actor) throw new Error("Not authenticated");
+      await (actor as unknown as BackendFull).likeVideo(videoId);
+    },
+    onSuccess: (_data, videoId) => {
+      qc.invalidateQueries({ queryKey: ["engagement", videoId] });
+    },
+  });
+}
+
+export function useUnlikeVideo() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (videoId: string) => {
+      if (!actor) throw new Error("Not authenticated");
+      await (actor as unknown as BackendFull).unlikeVideo(videoId);
+    },
+    onSuccess: (_data, videoId) => {
+      qc.invalidateQueries({ queryKey: ["engagement", videoId] });
+    },
+  });
+}
+
+export function usePostComment() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      videoId,
+      text,
+    }: { videoId: string; text: string }) => {
+      if (!actor) throw new Error("Not authenticated");
+      return (actor as unknown as BackendFull).postComment(videoId, text);
+    },
+    onSuccess: (_data, { videoId }) => {
+      qc.invalidateQueries({ queryKey: ["engagement", videoId] });
+    },
+  });
+}
+
+export function useDeleteComment() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      videoId,
+      commentId,
+    }: { videoId: string; commentId: string }) => {
+      if (!actor) throw new Error("Not authenticated");
+      await (actor as unknown as BackendFull).deleteComment(videoId, commentId);
+    },
+    onSuccess: (_data, { videoId }) => {
+      qc.invalidateQueries({ queryKey: ["engagement", videoId] });
+    },
   });
 }

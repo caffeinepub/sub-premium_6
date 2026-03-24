@@ -27,6 +27,7 @@ export interface Video {
     qualityLevel: string;
     thumbnailBlob: ExternalBlob;
     uploadTime: Time;
+    scheduledPublishTime: Time | null;
 }
 export interface UploadPermission {
     dailyCount: bigint;
@@ -68,6 +69,20 @@ export interface ProfileEntry {
     principalId: string;
     profile: UserProfile;
 }
+export interface Comment {
+    id: string;
+    userId: string;
+    username: string;
+    avatarBlobId: string;
+    text: string;
+    timestamp: Time;
+}
+export interface VideoEngagement {
+    viewCount: bigint;
+    likeCount: bigint;
+    isLiked: boolean;
+    comments: Array<Comment>;
+}
 export enum CreatorTier {
     verified = "verified",
     active = "active",
@@ -81,27 +96,47 @@ export enum UserRole {
 export interface backendInterface {
     addStorageUsage(bytes: bigint): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    cancelSchedule(videoId: string): Promise<void>;
     checkUploadPermission(): Promise<UploadPermission>;
+    deleteComment(videoId: string, commentId: string): Promise<void>;
     deleteVideo(videoId: string): Promise<void>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getCaptionTracks(videoId: string): Promise<Array<CaptionTrack>>;
+    getComments(videoId: string): Promise<Array<Comment>>;
     getCreatorStats(): Promise<CreatorStats>;
     getCreatorTier(user: Principal): Promise<CreatorTier>;
+    getLikeCount(videoId: string): Promise<bigint>;
+    getPublicProfile(creatorId: Principal): Promise<UserProfile | null>;
     getSettings(): Promise<UserSettings | null>;
+    getSubscriberCount(creatorId: Principal): Promise<bigint>;
+    getSubscriptions(): Promise<Array<Principal>>;
     getUploadStats(): Promise<UploadPermission>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     getVideoCaption(videoId: string): Promise<string>;
+    getVideoEngagement(videoId: string): Promise<VideoEngagement>;
+    getVideosByCreator(creatorId: string): Promise<Array<Video>>;
     getWatchHistory(): Promise<Array<VideoView>>;
     incrementViews(videoId: string): Promise<void>;
     isCallerAdmin(): Promise<boolean>;
-    listAllVideos(): Promise<Array<Video>>;
+    isLiked(videoId: string): Promise<boolean>;
+    isSubscribed(creatorId: Principal): Promise<boolean>;
+    likeVideo(videoId: string): Promise<void>;
     listAllProfiles(): Promise<Array<ProfileEntry>>;
+    listAllVideos(): Promise<Array<Video>>;
     listReadyVideos(): Promise<Array<Video>>;
+    listScheduledVideos(): Promise<Array<Video>>;
+    postComment(videoId: string, text: string): Promise<Comment>;
+    recordView(videoId: string): Promise<void>;
     removeCaptionTrack(videoId: string, language: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
+    scheduleVideo(videoId: string, publishTimeNano: bigint): Promise<void>;
     searchVideos(searchTerm: string): Promise<Array<Video>>;
     setCaptionTrack(videoId: string, language: string, captionLabel: string, vtt: string): Promise<void>;
+    subscribe(creatorId: Principal): Promise<void>;
+    unlikeVideo(videoId: string): Promise<void>;
+    unsubscribe(creatorId: Principal): Promise<void>;
+    updateSchedule(videoId: string, publishTimeNano: bigint): Promise<void>;
     updateSettings(settings: UserSettings): Promise<void>;
     updateVideoCaption(videoId: string, vtt: string): Promise<void>;
     updateVideoMetadata(videoId: string, newTitle: string, newThumbnailBlob: ExternalBlob): Promise<void>;

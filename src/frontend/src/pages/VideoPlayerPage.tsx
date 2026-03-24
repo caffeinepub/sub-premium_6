@@ -29,7 +29,6 @@ import {
   Share2,
   SkipBack,
   SkipForward,
-  ThumbsDown,
   ThumbsUp,
   X,
 } from "lucide-react";
@@ -46,8 +45,13 @@ import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import {
   useGetCaptionTracks,
   useIncrementViews,
+  useLikeVideo,
   useListVideos,
+  usePostComment,
+  useRecordView,
+  useUnlikeVideo,
   useUpdateWatchHistory,
+  useVideoEngagement,
 } from "../hooks/useQueries";
 import { useI18n } from "../i18n";
 import {
@@ -98,6 +102,22 @@ function timeAgo(uploadTime: bigint): string {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function formatTimestamp(nanos: number): string {
+  const ms = nanos / 1_000_000;
+  const diffMs = Date.now() - ms;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return "Just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}h ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  return `${diffDay}d ago`;
+}
+
+// ---------------------------------------------------------------------------
 // VideoPlayerPage
 // ---------------------------------------------------------------------------
 export function VideoPlayerPage() {
@@ -112,7 +132,16 @@ export function VideoPlayerPage() {
   } = useApp();
   const { identity } = useInternetIdentity();
   const queryClient = useQueryClient();
+  const isLoggedIn = !!identity;
+  const { data: engagement } = useVideoEngagement(selectedVideo?.id ?? null);
+  const liked = engagement?.isLiked ?? false;
+  const likeCount = Number(engagement?.likeCount ?? 0);
+  const viewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const incrementViews = useIncrementViews();
+  const recordView = useRecordView();
+  const likeVideoMutation = useLikeVideo();
+  const unlikeVideoMutation = useUnlikeVideo();
+  const postCommentMutation = usePostComment();
   const updateHistory = useUpdateWatchHistory();
   const { data: allVideos } = useListVideos();
   const hasTracked = useRef(false);
@@ -139,12 +168,8 @@ export function VideoPlayerPage() {
     null,
   );
 
-  const [liked, setLiked] = useState(false);
-  const [disliked, setDisliked] = useState(false);
-  const [likeCount, setLikeCount] = useState(0);
   const [isSticky, setIsSticky] = useState(false);
   const [commentText, setCommentText] = useState("");
-  const [comments, setComments] = useState<CommentData[]>([]);
   const [showDesc, setShowDesc] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [saveSheetOpen, setSaveSheetOpen] = useState(false);
@@ -211,6 +236,14 @@ export function VideoPlayerPage() {
   const hasTracks = captionTracks.length > 0;
   const isCreator =
     identity?.getPrincipal().toString() === selectedVideo?.creatorId;
+  const commentList: CommentData[] = (engagement?.comments ?? []).map((c) => ({
+    id: c.id,
+    text: c.text,
+    time: formatTimestamp(Number(c.timestamp)),
+    username: c.username,
+    avatarBlobId: c.avatarBlobId || undefined,
+    userId: c.userId,
+  }));
 
   // NOTE: No auto-enable effect — CC defaults to OFF. User must turn it on.
 
@@ -472,6 +505,13 @@ export function VideoPlayerPage() {
       hasTracked.current = true;
       trackView(selectedVideo.id);
       trackBehavior(selectedVideo.id, "click");
+      // Record view after 3 seconds of watching (deduplicated per user on backend)
+      if (isLoggedIn) {
+        if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
+        viewTimerRef.current = setTimeout(() => {
+          recordView.mutate(selectedVideo.id);
+        }, 3000);
+      }
       watchStartRef.current = Date.now();
       const saved = getWatchProgress(selectedVideo.id);
       if (saved > 5 && videoRef.current) {
@@ -484,10 +524,8 @@ export function VideoPlayerPage() {
   useEffect(() => {
     if (!selectedVideo) return;
     hasTracked.current = false;
-    setLiked(false);
-    setDisliked(false);
-    setLikeCount(0);
-    setComments([]);
+    setCommentText("");
+    if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
     setShowDesc(false);
     setAutoplayCountdown(null);
     setNextVideo(null);
@@ -743,27 +781,17 @@ export function VideoPlayerPage() {
     setNextVideo(null);
   };
 
-  const handleLike = () => {
-    if (liked) {
-      setLiked(false);
-      setLikeCount((c) => c - 1);
-    } else {
-      setLiked(true);
-      setDisliked(false);
-      setLikeCount((c) => c + 1);
-      trackBehavior(selectedVideo.id, "like");
+  const handleLike = async () => {
+    if (!isLoggedIn) {
+      toast.error("Please log in to like videos");
+      return;
     }
-  };
-
-  const handleDislike = () => {
-    if (disliked) {
-      setDisliked(false);
+    if (!selectedVideo) return;
+    if (liked) {
+      unlikeVideoMutation.mutate(selectedVideo.id);
     } else {
-      setDisliked(true);
-      if (liked) {
-        setLiked(false);
-        setLikeCount((c) => c - 1);
-      }
+      likeVideoMutation.mutate(selectedVideo.id);
+      trackBehavior(selectedVideo.id, "like");
     }
   };
 
@@ -786,14 +814,17 @@ export function VideoPlayerPage() {
     a.click();
   };
 
-  const handleComment = () => {
+  const handleComment = async () => {
     if (!commentText.trim()) return;
+    if (!isLoggedIn) {
+      toast.error("Please log in to comment");
+      return;
+    }
+    if (!selectedVideo) return;
     trackBehavior(selectedVideo.id, "comment");
-    setComments((prev) => [
-      { text: commentText.trim(), time: "Just now" },
-      ...prev,
-    ]);
+    const text = commentText.trim();
     setCommentText("");
+    postCommentMutation.mutate({ videoId: selectedVideo.id, text });
   };
 
   const handleSelectVideo = (video: Video) => {
@@ -1782,19 +1813,6 @@ export function VideoPlayerPage() {
 
           <button
             type="button"
-            data-ocid="player.dislike_button"
-            onClick={handleDislike}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors flex-shrink-0 ${
-              disliked
-                ? "bg-surface2/90 text-red-400"
-                : "bg-surface2 text-foreground hover:bg-surface2/80"
-            }`}
-          >
-            <ThumbsDown size={15} />
-          </button>
-
-          <button
-            type="button"
             data-ocid="player.share_button"
             onClick={handleShare}
             className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-sm font-medium transition-colors flex-shrink-0"
@@ -1836,21 +1854,20 @@ export function VideoPlayerPage() {
           <div className="flex items-center gap-2 mb-3">
             <MessageCircle size={15} className="text-muted-foreground" />
             <span className="text-sm font-semibold">
-              {comments.length} Comment{comments.length !== 1 ? "s" : ""}
+              {commentList.length} Comment{commentList.length !== 1 ? "s" : ""}
             </span>
           </div>
 
           <div className="space-y-3">
-            {comments.map((c, i) => (
+            {commentList.map((c, i) => (
               <CommentItem
-                // biome-ignore lint/suspicious/noArrayIndexKey: order rarely changes
-                key={i}
+                key={c.id || i}
                 comment={c}
                 index={i + 1}
                 userLang={userLang}
               />
             ))}
-            {comments.length === 0 && (
+            {commentList.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-4">
                 {t("comment.noComments")}
               </p>

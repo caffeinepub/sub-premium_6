@@ -50,6 +50,23 @@ actor {
     vtt : Text;
   };
 
+  // ── Engagement types ────────────────────────────────────────────────
+  public type Comment = {
+    id : Text;
+    userId : Text;
+    username : Text;
+    avatarBlobId : Text;
+    text : Text;
+    timestamp : Time.Time;
+  };
+
+  public type VideoEngagement = {
+    viewCount : Nat;
+    likeCount : Nat;
+    isLiked : Bool;
+    comments : [Comment];
+  };
+
   // Internal stored type
   type VideoData = {
     id : Text;
@@ -122,6 +139,14 @@ actor {
   stable var watchHistory = Map.empty<Principal, [VideoView]>();
   stable var uploadLimits = Map.empty<Principal, UploadLimits>();
   stable var subscriptions = Map.empty<Principal, [Principal]>();
+
+  // ── Engagement stable maps ─────────────────────────────────────────
+  // videoId -> list of userIds (Text) who have viewed
+  stable var videoViewers = Map.empty<Text, [Text]>();
+  // videoId -> list of userIds (Text) who liked
+  stable var videoLikes = Map.empty<Text, [Text]>();
+  // videoId -> list of comments
+  stable var videoComments = Map.empty<Text, [Comment]>();
 
   // Merge VideoData + scheduled time into public Video type
   func toVideo(data : VideoData) : Video {
@@ -386,6 +411,9 @@ actor {
         videos.remove(videoId);
         captionTracks.remove(videoId);
         videoSchedules.remove(videoId);
+        videoViewers.remove(videoId);
+        videoLikes.remove(videoId);
+        videoComments.remove(videoId);
       };
     };
   };
@@ -412,11 +440,114 @@ actor {
       .map(toVideo);
   };
 
+  // Legacy — kept for compatibility
   public shared func incrementViews(videoId : Text) : async () {
     switch (videos.get(videoId)) {
       case (null) { Runtime.trap("Video not found") };
       case (?data) { videos.add(videoId, { data with views = data.views + 1 }) };
     };
+  };
+
+  // ── Engagement: Views ─────────────────────────────────────────────
+
+  // Record a view only once per user. Caller must be authenticated.
+  public shared ({ caller }) func recordView(videoId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) { Runtime.trap("Unauthorized") };
+    let callerId = caller.toText();
+    let viewers = switch (videoViewers.get(videoId)) { case (null) { [] }; case (?v) { v } };
+    let alreadyViewed = viewers.filter(func(uid : Text) : Bool { uid == callerId }).size() > 0;
+    if (not alreadyViewed) {
+      videoViewers.add(videoId, [callerId].concat(viewers));
+      switch (videos.get(videoId)) {
+        case (null) {};
+        case (?data) { videos.add(videoId, { data with views = data.views + 1 }) };
+      };
+    };
+  };
+
+  // ── Engagement: Likes ─────────────────────────────────────────────
+
+  public shared ({ caller }) func likeVideo(videoId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) { Runtime.trap("Unauthorized") };
+    let callerId = caller.toText();
+    let likers = switch (videoLikes.get(videoId)) { case (null) { [] }; case (?l) { l } };
+    let alreadyLiked = likers.filter(func(uid : Text) : Bool { uid == callerId }).size() > 0;
+    if (not alreadyLiked) {
+      videoLikes.add(videoId, [callerId].concat(likers));
+    };
+  };
+
+  public shared ({ caller }) func unlikeVideo(videoId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) { Runtime.trap("Unauthorized") };
+    let callerId = caller.toText();
+    let likers = switch (videoLikes.get(videoId)) { case (null) { [] }; case (?l) { l } };
+    videoLikes.add(videoId, likers.filter(func(uid : Text) : Bool { uid != callerId }));
+  };
+
+  public query func getLikeCount(videoId : Text) : async Nat {
+    switch (videoLikes.get(videoId)) { case (null) { 0 }; case (?l) { l.size() } };
+  };
+
+  public query ({ caller }) func isLiked(videoId : Text) : async Bool {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) { return false };
+    let callerId = caller.toText();
+    let likers = switch (videoLikes.get(videoId)) { case (null) { [] }; case (?l) { l } };
+    likers.filter(func(uid : Text) : Bool { uid == callerId }).size() > 0;
+  };
+
+  // ── Engagement: Comments ──────────────────────────────────────────
+
+  public shared ({ caller }) func postComment(videoId : Text, text : Text) : async Comment {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) { Runtime.trap("Unauthorized") };
+    if (text == "") { Runtime.trap("Comment text cannot be empty") };
+    let callerId = caller.toText();
+    let (username, avatarBlobId) = switch (profiles.get(caller)) {
+      case (null) { ("Anonymous", "") };
+      case (?p) { (p.displayName, p.avatarBlobId) };
+    };
+    let commentId = callerId # "-" # Time.now().toText();
+    let newComment : Comment = {
+      id = commentId;
+      userId = callerId;
+      username;
+      avatarBlobId;
+      text;
+      timestamp = Time.now();
+    };
+    let existing = switch (videoComments.get(videoId)) { case (null) { [] }; case (?c) { c } };
+    videoComments.add(videoId, existing.concat([newComment]));
+    newComment;
+  };
+
+  public query func getComments(videoId : Text) : async [Comment] {
+    switch (videoComments.get(videoId)) { case (null) { [] }; case (?c) { c } };
+  };
+
+  public shared ({ caller }) func deleteComment(videoId : Text, commentId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) { Runtime.trap("Unauthorized") };
+    let callerId = caller.toText();
+    let existing = switch (videoComments.get(videoId)) { case (null) { [] }; case (?c) { c } };
+    let filtered = existing.filter(func(c : Comment) : Bool {
+      if (c.id == commentId) {
+        // Only owner or admin can delete
+        c.userId != callerId and not AccessControl.isAdmin(accessControlState, caller);
+      } else { true };
+    });
+    videoComments.add(videoId, filtered);
+  };
+
+  // ── Combined engagement fetch ──────────────────────────────────────
+
+  public query ({ caller }) func getVideoEngagement(videoId : Text) : async VideoEngagement {
+    let viewCount = switch (videos.get(videoId)) { case (null) { 0 }; case (?d) { d.views } };
+    let likers = switch (videoLikes.get(videoId)) { case (null) { [] }; case (?l) { l } };
+    let likeCount = likers.size();
+    let isLikedByCaller = if (AccessControl.hasPermission(accessControlState, caller, #user)) {
+      let callerId = caller.toText();
+      likers.filter(func(uid : Text) : Bool { uid == callerId }).size() > 0;
+    } else { false };
+    let comments = switch (videoComments.get(videoId)) { case (null) { [] }; case (?c) { c } };
+    { viewCount; likeCount; isLiked = isLikedByCaller; comments };
   };
 
   // ── Scheduling Functions ────────────────────────────────────────────

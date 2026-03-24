@@ -1,11 +1,15 @@
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useRef, useState } from "react";
 import { translateComment, useI18n } from "../i18n";
 
 export interface CommentData {
+  id: string;
   text: string;
   time: string;
-  lang?: string; // optional language code, e.g. "fr", "es"
+  lang?: string;
+  username?: string;
+  avatarBlobId?: string;
+  userId?: string;
 }
 
 interface CommentItemProps {
@@ -22,13 +26,14 @@ export function CommentItem({ comment, index, userLang }: CommentItemProps) {
   const [visible, setVisible] = useState(true);
   const cacheRef = useRef<string | null>(null);
 
-  // Show translate button when comment has a different lang metadata
   const commentLang = comment.lang ?? "en";
   const canTranslate = commentLang !== userLang;
 
+  const displayName = comment.username ?? "User";
+  const initials = displayName.charAt(0).toUpperCase();
+
   const handleTranslate = async () => {
     if (cacheRef.current) {
-      // Use cache — fade swap
       setVisible(false);
       setTimeout(() => {
         setDisplayText(cacheRef.current!);
@@ -65,12 +70,17 @@ export function CommentItem({ comment, index, userLang }: CommentItemProps) {
   return (
     <div className="flex gap-2" data-ocid={`player.comment.item.${index}`}>
       <Avatar className="w-7 h-7 flex-shrink-0">
+        {comment.avatarBlobId ? (
+          <AvatarImage src={comment.avatarBlobId} alt={displayName} />
+        ) : null}
         <AvatarFallback className="bg-accent/20 text-accent text-[10px] font-bold">
-          ME
+          {initials}
         </AvatarFallback>
       </Avatar>
       <div className="flex-1">
-        <span className="text-xs font-semibold text-foreground">You </span>
+        <span className="text-xs font-semibold text-foreground">
+          {displayName}{" "}
+        </span>
         <span className="text-xs text-muted-foreground">{comment.time}</span>
         <p
           className="text-sm text-foreground mt-0.5"
@@ -81,7 +91,6 @@ export function CommentItem({ comment, index, userLang }: CommentItemProps) {
         >
           {displayText}
         </p>
-        {/* Translation controls */}
         {canTranslate && (
           <div className="mt-1">
             {isTranslating ? (
