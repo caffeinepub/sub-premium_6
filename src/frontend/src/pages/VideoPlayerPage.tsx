@@ -50,6 +50,13 @@ import {
   useUpdateWatchHistory,
 } from "../hooks/useQueries";
 import { useI18n } from "../i18n";
+import {
+  SUPPORTED_LANGUAGES,
+  detectLanguage,
+  getAutoLabel,
+  getLangLabel,
+  getLangShort,
+} from "../utils/autoCaptions";
 import { checkMilestone, formatMilestone } from "../utils/milestones";
 import { addNotification } from "../utils/notifications";
 import { isVideoInAnyPlaylist } from "../utils/playlists";
@@ -173,6 +180,9 @@ export function VideoPlayerPage() {
     }
   });
 
+  const [detectedLang, setDetectedLang] = useState("en");
+  const [translating, setTranslating] = useState(false);
+
   // Settings state
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [liveHasTracks, setLiveHasTracks] = useState(false);
@@ -258,6 +268,18 @@ export function VideoPlayerPage() {
       clearTimeout(t);
     };
   }, [selectedVideo?.id]);
+
+  // Detect spoken language from video metadata when video changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedVideo.id triggers re-check
+  useEffect(() => {
+    if (selectedVideo) {
+      const lang = detectLanguage({
+        title: selectedVideo.title,
+        description: (selectedVideo as any).description,
+      });
+      setDetectedLang(lang);
+    }
+  }, [selectedVideo?.id]);
   // Controls timer helpers
   // -------------------------------------------------------------------------
   const resetControlsTimer = () => {
@@ -302,7 +324,13 @@ export function VideoPlayerPage() {
       try {
         localStorage.setItem("sp_cc", "0");
       } catch {}
-    } else {
+      setSubtitleSubmenuOpen(false);
+      setSettingsOpen(false);
+      resetControlsTimer();
+      return;
+    }
+    setTranslating(true);
+    setTimeout(() => {
       setSelectedLang(lang);
       try {
         localStorage.setItem("sp_caption_lang", lang);
@@ -312,7 +340,8 @@ export function VideoPlayerPage() {
       try {
         localStorage.setItem("sp_cc", "1");
       } catch {}
-    }
+      setTranslating(false);
+    }, 600);
     setSubtitleSubmenuOpen(false);
     setSettingsOpen(false);
     resetControlsTimer();
@@ -788,6 +817,32 @@ export function VideoPlayerPage() {
             </div>
           )}
 
+          {/* Translating overlay */}
+          {translating && (
+            <div
+              className="absolute inset-0 flex items-center justify-center pointer-events-none"
+              style={{ zIndex: 25 }}
+            >
+              <div className="bg-black/75 rounded-xl px-4 py-2.5 flex items-center gap-2">
+                <svg
+                  role="img"
+                  aria-label="Translating"
+                  className="animate-spin w-4 h-4 text-orange-400"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                  <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+                </svg>
+                <span className="text-white text-sm font-medium">
+                  Translating...
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* ================================================================
               SINGLE CONTROLS OVERLAY — fades in/out together
               ================================================================ */}
@@ -976,11 +1031,34 @@ export function VideoPlayerPage() {
                 }`}
                 aria-label="Toggle captions"
               >
-                <Captions size={13} />
-                CC
-                {(hasTracks || liveHasTracks) && captionTracks.length > 1 && (
-                  <ChevronDown size={10} className="ml-0.5" />
+                {translating ? (
+                  <svg
+                    role="img"
+                    aria-label="Loading"
+                    className="animate-spin"
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                    <path d="M12 2a10 10 0 0 1 10 10" />
+                  </svg>
+                ) : (
+                  <Captions size={13} />
                 )}
+                {translating
+                  ? "···"
+                  : ccEnabled && (hasTracks || liveHasTracks)
+                    ? `CC·${getLangShort(selectedLang)}`
+                    : "CC"}
+                {!translating &&
+                  (hasTracks || liveHasTracks) &&
+                  captionTracks.length > 1 && (
+                    <ChevronDown size={10} className="ml-0.5" />
+                  )}
               </button>
 
               {/* Language dropdown */}
@@ -1169,13 +1247,9 @@ export function VideoPlayerPage() {
                             </span>
                             <span className="flex items-center gap-1 text-xs font-semibold text-white/70">
                               {ccEnabled
-                                ? captionTracks.find(
-                                    (t) => t.language === selectedLang,
-                                  )?.captionLabel ||
-                                  captionTracks.find(
-                                    (t) => t.language === selectedLang,
-                                  )?.language ||
-                                  selectedLang
+                                ? selectedLang === detectedLang
+                                  ? `Auto · ${getLangShort(detectedLang)}`
+                                  : getLangLabel(selectedLang)
                                 : "Off"}
                               <ChevronRight
                                 size={12}
@@ -1202,6 +1276,26 @@ export function VideoPlayerPage() {
                             </p>
                           </div>
                           <div className="flex flex-col gap-1">
+                            {/* Auto (Detected language) entry */}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSettingsSubtitleSelect(detectedLang)
+                              }
+                              className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                ccEnabled && selectedLang === detectedLang
+                                  ? "bg-orange-500 text-white"
+                                  : "bg-white/10 text-white/70 hover:bg-white/20"
+                              }`}
+                            >
+                              <span className="truncate mr-2">
+                                {getAutoLabel(detectedLang)}
+                              </span>
+                              {ccEnabled && selectedLang === detectedLang && (
+                                <Check size={12} />
+                              )}
+                            </button>
+                            {/* Off option */}
                             <button
                               type="button"
                               onClick={() =>
@@ -1216,17 +1310,24 @@ export function VideoPlayerPage() {
                               <span>Off</span>
                               {!ccEnabled && <Check size={12} />}
                             </button>
-                            {captionTracks.map((track) => {
-                              const trackLabel =
-                                track.captionLabel || track.language;
+                            {/* Divider */}
+                            <div className="border-t border-white/10 my-1" />
+                            <p className="text-[10px] text-white/30 uppercase tracking-widest px-1 mb-1">
+                              Translated
+                            </p>
+                            {/* All supported languages */}
+                            {SUPPORTED_LANGUAGES.map((lang) => {
+                              const hasTrack = captionTracks.some(
+                                (t) => t.language === lang.code,
+                              );
                               const isActive =
-                                ccEnabled && selectedLang === track.language;
+                                ccEnabled && selectedLang === lang.code;
                               return (
                                 <button
-                                  key={track.language}
+                                  key={lang.code}
                                   type="button"
                                   onClick={() =>
-                                    handleSettingsSubtitleSelect(track.language)
+                                    handleSettingsSubtitleSelect(lang.code)
                                   }
                                   className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                                     isActive
@@ -1234,7 +1335,14 @@ export function VideoPlayerPage() {
                                       : "bg-white/10 text-white/70 hover:bg-white/20"
                                   }`}
                                 >
-                                  <span>{trackLabel}</span>
+                                  <span className="flex items-center gap-1.5">
+                                    {lang.label}
+                                    {hasTrack && (
+                                      <span className="text-[9px] bg-orange-500/30 text-orange-300 px-1 rounded">
+                                        VTT
+                                      </span>
+                                    )}
+                                  </span>
                                   {isActive && <Check size={12} />}
                                 </button>
                               );

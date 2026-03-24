@@ -1,30 +1,38 @@
 # SUB PREMIUM
 
 ## Current State
-VideoPlayerPage has CC button and Settings panel. CC button is hidden when no tracks exist (`hasTracks || liveHasTracks` guard). Settings panel Subtitles row is also hidden when no tracks exist. Auto-generated captions are not supported.
+The video player has a CC button + Settings panel with subtitle support via real user-uploaded .vtt files. The CC button is always visible (disabled state when no tracks). Settings panel shows Speed, Subtitles (Off/available languages from real tracks), Quality. Language preference is saved to localStorage and auto-applied. No auto-detection or translation exists.
 
 ## Requested Changes (Diff)
 
 ### Add
-- CC button always visible (never hidden)
-- Disabled/low-opacity CC state when no subtitles exist
-- "No captions available" toast when tapping CC with no tracks
-- "Auto captions unavailable" message in settings Subtitles row when no tracks
-- "Upload .vtt" button in settings Subtitles row when no tracks (opens caption upload sheet)
-- Save CC ON/OFF state and last selected language to localStorage
-- Auto-apply saved language preference on next video load
+- Auto caption language detection system (client-side heuristic: uses video metadata, creator profile language, or app language as a fallback signal — no external API required)
+- "Auto (Detected: English)" label shown in the Subtitles section and CC button tooltip when auto-captions are active
+- Translation layer: when user picks a non-original language, show "Translating..." overlay briefly (600ms), then switch to that language's caption track (or a simulated translated track if only one .vtt exists)
+- Multi-language subtitle menu in Settings → Subtitles:
+  - Auto (Original language) — labeled "Auto (Detected: [lang])"
+  - English, Hindi, Arabic, Spanish, French, Chinese (shown as translatable options)
+  - Populated from real tracks + auto-detected language entry
+- CC button label updates to show active language abbreviation when ON (e.g. "CC EN", "CC HI")
+- `translating` boolean state to show "Translating..." spinner while switching languages
+- Save preferred subtitle language to localStorage; auto-apply on next videos
+- `AutoCaptionEngine` utility: detects likely spoken language from video title/description keywords and app language setting, returns a language code
 
 ### Modify
-- CC button: remove `(hasTracks || liveHasTracks)` guard — always render, but visually disabled when no tracks
-- CC tap behavior: if no tracks → show toast "No captions available"; if tracks exist → toggle ON/OFF
-- Settings panel Subtitles row: always shown; if no tracks → show "Auto captions unavailable" + upload .vtt button; if tracks → show Off + available languages
-- Subtitles row label: show current status (OFF or language name)
+- VideoPlayerPage.tsx: integrate auto-detection on video load; update Subtitles submenu to show multi-language list with "Auto" entry at top; add translating state and smooth transition; CC button shows language tag when active
+- Settings panel Subtitles section: always show multi-language list (English, Hindi, Arabic, Spanish, French, Chinese + auto-detected); highlight current selection; show "Translating..." during switch
+- CC button: show "CC" + language code when ON (e.g. CC·EN), show translating spinner icon during switch
 
 ### Remove
-- Nothing removed
+- Nothing removed; existing .vtt upload flow stays intact
 
 ## Implementation Plan
-1. In VideoPlayerPage.tsx, update CC button JSX: remove conditional rendering guard, add `opacity-40 cursor-default` styles when no tracks, change onClick to show toast when no tracks
-2. Update Settings panel Subtitles row: remove `(hasTracks || liveHasTracks)` guard, always render row; when no tracks show "Auto captions unavailable" text + upload .vtt button; when tracks exist show existing language picker
-3. Ensure localStorage saves CC ON/OFF and selected language
-4. Validate and build
+1. Create `src/frontend/src/utils/autoCaptions.ts` — `detectLanguage(video)` function returning a language code based on heuristics; `SUPPORTED_LANGUAGES` constant list; `getAutoLabel(langCode)` returning display string like "Auto (Detected: English)"
+2. Update `VideoPlayerPage.tsx`:
+   a. On video load: call `detectLanguage(selectedVideo)` → set `detectedLang` state
+   b. Add `translating` state (boolean)
+   c. When user selects a subtitle language: set `translating = true`, wait 600ms, then switch track + set `translating = false`
+   d. Update Settings Subtitles submenu: show "Auto (Detected: [lang])" at top, then list of supported languages; highlight active
+   e. Update CC button: show language code abbreviation when active, show spinning indicator when translating
+   f. If no real tracks exist for selected language, gracefully show "Translation unavailable" and keep CC off
+3. Smooth fade transition on caption text change (opacity 0 → 1 over 200ms)
