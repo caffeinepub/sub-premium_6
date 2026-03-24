@@ -1,6 +1,12 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -14,7 +20,6 @@ import {
   Clock,
   Download,
   Eye,
-  Maximize,
   MessageCircle,
   Pause,
   Play,
@@ -33,6 +38,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Video } from "../backend";
 import { AddToPlaylistModal } from "../components/AddToPlaylistModal";
+import { CaptionManager } from "../components/CaptionManager";
 import { type CommentData, CommentItem } from "../components/CommentItem";
 import { VideoCard } from "../components/VideoCard";
 import { useApp } from "../context/AppContext";
@@ -135,6 +141,7 @@ export function VideoPlayerPage() {
   const [showDesc, setShowDesc] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [saveSheetOpen, setSaveSheetOpen] = useState(false);
+  const [captionModalOpen, setCaptionModalOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -233,6 +240,24 @@ export function VideoPlayerPage() {
   }, [ccEnabled, activeTrack, selectedLang]);
 
   // -------------------------------------------------------------------------
+
+  // Track detection: also fire on loadeddata + 500ms delay for late-loading tracks
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedVideo.id triggers re-check
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const checkTracks = () => {
+      setLiveHasTracks((video.textTracks?.length ?? 0) > 0);
+    };
+    video.addEventListener("loadedmetadata", checkTracks);
+    video.addEventListener("loadeddata", checkTracks);
+    const t = setTimeout(checkTracks, 500);
+    return () => {
+      video.removeEventListener("loadedmetadata", checkTracks);
+      video.removeEventListener("loadeddata", checkTracks);
+      clearTimeout(t);
+    };
+  }, [selectedVideo?.id]);
   // Controls timer helpers
   // -------------------------------------------------------------------------
   const resetControlsTimer = () => {
@@ -240,7 +265,7 @@ export function VideoPlayerPage() {
     setControlsVisible(true);
     controlsTimerRef.current = setTimeout(
       () => setControlsVisible(false),
-      5000,
+      3000,
     );
   };
 
@@ -360,7 +385,7 @@ export function VideoPlayerPage() {
     if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
     controlsTimerRef.current = setTimeout(
       () => setControlsVisible(false),
-      5000,
+      3000,
     );
     if (countdownRef.current) clearInterval(countdownRef.current);
     window.scrollTo({ top: 0 });
@@ -535,7 +560,7 @@ export function VideoPlayerPage() {
           }
           controlsTimerRef.current = setTimeout(
             () => setControlsVisible(false),
-            5000,
+            3000,
           );
           return true;
         });
@@ -595,17 +620,6 @@ export function VideoPlayerPage() {
       vid.play().catch(() => {});
     } else {
       vid.pause();
-    }
-    resetControlsTimer();
-  };
-
-  const handleFullscreen = () => {
-    const el = videoContainerRef.current;
-    if (!el) return;
-    if (!document.fullscreenElement) {
-      el.requestFullscreen().catch(() => {});
-    } else {
-      document.exitFullscreen().catch(() => {});
     }
     resetControlsTimer();
   };
@@ -735,6 +749,7 @@ export function VideoPlayerPage() {
               src={videoUrl}
               autoPlay
               playsInline
+              style={{ pointerEvents: "none", zIndex: 1 }}
               className="w-full h-full object-contain"
               onEnded={handleVideoEnded}
               onTimeUpdate={handleTimeUpdate}
@@ -778,7 +793,7 @@ export function VideoPlayerPage() {
               ================================================================ */}
           <div
             className="absolute inset-0 pointer-events-none transition-opacity duration-300"
-            style={{ opacity: controlsVisible ? 1 : 0 }}
+            style={{ opacity: controlsVisible ? 1 : 0, zIndex: 10 }}
           >
             {/* Gradient scrim — top & bottom */}
             <div
@@ -789,25 +804,14 @@ export function VideoPlayerPage() {
               }}
             />
 
-            {/* TOP ROW: Fullscreen (left) + CC + Settings (right) */}
+            {/* TOP ROW: CC + Settings (right) */}
             <div
-              className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 pt-3"
-              style={{ pointerEvents: controlsVisible ? "auto" : "none" }}
+              className="absolute top-0 left-0 right-0 flex items-center justify-end px-3 pt-3"
+              style={{
+                pointerEvents: controlsVisible ? "auto" : "none",
+                zIndex: 20,
+              }}
             >
-              {/* Fullscreen button — top-left */}
-              <button
-                type="button"
-                data-ocid="player.button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleFullscreen();
-                }}
-                className="w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-colors"
-                aria-label="Fullscreen"
-              >
-                <Maximize size={16} />
-              </button>
-
               {/* Top-right: CC (if tracks exist) + Settings */}
               <div className="flex items-center gap-2 relative">
                 {/* CC button — only when real tracks exist */}
@@ -886,220 +890,16 @@ export function VideoPlayerPage() {
                     </AnimatePresence>
                   </div>
                 )}
-
-                {/* Settings button */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSettingsOpen((o) => !o);
-                      setLangMenuOpen(false);
-                      resetControlsTimer();
-                    }}
-                    className={`w-9 h-9 rounded-full flex items-center justify-center text-white transition-colors ${
-                      settingsOpen
-                        ? "bg-white/20"
-                        : "bg-black/50 hover:bg-black/70"
-                    }`}
-                    aria-label="Settings"
-                  >
-                    <Settings size={16} />
-                  </button>
-
-                  {/* Settings panel */}
-                  <AnimatePresence>
-                    {settingsOpen && (
-                      <>
-                        {/* tap-outside backdrop */}
-                        <div
-                          className="fixed inset-0 z-40"
-                          role="presentation"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSettingsOpen(false);
-                            setSubtitleSubmenuOpen(false);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") {
-                              e.stopPropagation();
-                              setSettingsOpen(false);
-                              setSubtitleSubmenuOpen(false);
-                            }
-                          }}
-                        />
-                        <motion.div
-                          initial={{ opacity: 0, y: -6, scale: 0.96 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                          transition={{ duration: 0 }}
-                          className="absolute top-10 right-0 z-50 bg-black/95 border border-white/15 rounded-2xl shadow-2xl overflow-hidden w-52"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="px-3 pt-3 pb-1 border-b border-white/10">
-                            <p className="text-xs font-bold text-white tracking-wide">
-                              Settings
-                            </p>
-                          </div>
-                          {/* Playback Speed */}
-                          <div className="px-3 pt-3 pb-1">
-                            <p className="text-[10px] text-white/40 uppercase tracking-widest font-semibold mb-2">
-                              Speed
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {[0.5, 1, 1.25, 1.5, 2].map((s) => (
-                                <button
-                                  key={s}
-                                  type="button"
-                                  onClick={() => handleSpeedChange(s)}
-                                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                                    playbackSpeed === s
-                                      ? "bg-orange-500 text-white"
-                                      : "bg-white/10 text-white/70 hover:bg-white/20"
-                                  }`}
-                                >
-                                  {s === 1 ? "1x" : `${s}x`}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {(hasTracks || liveHasTracks) && (
-                            <>
-                              <div className="border-t border-white/10 mx-3 my-2" />
-                              {!subtitleSubmenuOpen ? (
-                                <div className="px-3 pb-2">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSubtitleSubmenuOpen(true);
-                                      resetControlsTimer();
-                                    }}
-                                    className="w-full flex items-center justify-between py-1 text-white/80 hover:text-white transition-colors"
-                                  >
-                                    <span className="text-[10px] uppercase tracking-widest font-semibold text-white/40">
-                                      Subtitles
-                                    </span>
-                                    <span className="flex items-center gap-1 text-xs font-semibold text-white/70">
-                                      {ccEnabled
-                                        ? captionTracks.find(
-                                            (t) => t.language === selectedLang,
-                                          )?.captionLabel ||
-                                          captionTracks.find(
-                                            (t) => t.language === selectedLang,
-                                          )?.language ||
-                                          selectedLang
-                                        : "Off"}
-                                      <ChevronRight
-                                        size={12}
-                                        className="text-white/40"
-                                      />
-                                    </span>
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="px-3 pb-2">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSubtitleSubmenuOpen(false);
-                                      }}
-                                      className="w-5 h-5 flex items-center justify-center text-white/60 hover:text-white transition-colors"
-                                    >
-                                      <ChevronLeft size={14} />
-                                    </button>
-                                    <p className="text-[10px] text-white/40 uppercase tracking-widest font-semibold">
-                                      Subtitles
-                                    </p>
-                                  </div>
-                                  <div className="flex flex-col gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleSettingsSubtitleSelect("off")
-                                      }
-                                      className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                        !ccEnabled
-                                          ? "bg-orange-500 text-white"
-                                          : "bg-white/10 text-white/70 hover:bg-white/20"
-                                      }`}
-                                    >
-                                      <span>Off</span>
-                                      {!ccEnabled && <Check size={12} />}
-                                    </button>
-                                    {captionTracks.map((track) => {
-                                      const trackLabel =
-                                        track.captionLabel || track.language;
-                                      const isActive =
-                                        ccEnabled &&
-                                        selectedLang === track.language;
-                                      return (
-                                        <button
-                                          key={track.language}
-                                          type="button"
-                                          onClick={() =>
-                                            handleSettingsSubtitleSelect(
-                                              track.language,
-                                            )
-                                          }
-                                          className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                            isActive
-                                              ? "bg-orange-500 text-white"
-                                              : "bg-white/10 text-white/70 hover:bg-white/20"
-                                          }`}
-                                        >
-                                          <span>{trackLabel}</span>
-                                          {isActive && <Check size={12} />}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )}
-                            </>
-                          )}
-
-                          <div className="border-t border-white/10 mx-3 my-2" />
-
-                          {/* Quality */}
-                          <div className="px-3 pb-3">
-                            <p className="text-[10px] text-white/40 uppercase tracking-widest font-semibold mb-2">
-                              Quality
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {(["Auto", "480p", "720p", "1080p"] as const).map(
-                                (q) => (
-                                  <button
-                                    key={q}
-                                    type="button"
-                                    onClick={() => handleQualityChange(q)}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                                      quality === q
-                                        ? "bg-orange-500 text-white"
-                                        : "bg-white/10 text-white/70 hover:bg-white/20"
-                                    }`}
-                                  >
-                                    {q}
-                                  </button>
-                                ),
-                              )}
-                            </div>
-                          </div>
-                        </motion.div>
-                      </>
-                    )}
-                  </AnimatePresence>
-                </div>
               </div>
             </div>
 
             {/* CENTER ROW: ⏮ Play/Pause ⏭ */}
             <div
               className="absolute inset-0 flex items-center justify-center gap-10"
-              style={{ pointerEvents: controlsVisible ? "auto" : "none" }}
+              style={{
+                pointerEvents: controlsVisible ? "auto" : "none",
+                zIndex: 20,
+              }}
             >
               <button
                 type="button"
@@ -1146,7 +946,10 @@ export function VideoPlayerPage() {
             {/* BOTTOM ROW: timeline */}
             <div
               className="absolute bottom-0 left-0 right-0 px-3 pb-3 flex flex-col gap-1"
-              style={{ pointerEvents: controlsVisible ? "auto" : "none" }}
+              style={{
+                pointerEvents: controlsVisible ? "auto" : "none",
+                zIndex: 20,
+              }}
             >
               {/* Track */}
               {/* biome-ignore lint/a11y/useKeyWithClickEvents: slider handles keyboard via role=slider and aria */}
@@ -1226,6 +1029,215 @@ export function VideoPlayerPage() {
             </div>
           </div>
           {/* END CONTROLS OVERLAY */}
+
+          {/* Settings button — standalone always-interactive layer */}
+          <div
+            className="absolute top-3 right-3"
+            style={{ zIndex: 30, pointerEvents: "auto" }}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSettingsOpen((o) => !o);
+                setSubtitleSubmenuOpen(false);
+                setLangMenuOpen(false);
+                resetControlsTimer();
+              }}
+              className={`w-9 h-9 rounded-full flex items-center justify-center text-white transition-colors ${
+                settingsOpen ? "bg-white/20" : "bg-black/50 hover:bg-black/70"
+              }`}
+              aria-label="Settings"
+            >
+              <Settings size={16} />
+            </button>
+
+            <AnimatePresence>
+              {settingsOpen && (
+                <>
+                  {/* Tap-outside backdrop */}
+                  <div
+                    className="fixed inset-0"
+                    style={{ zIndex: 40 }}
+                    role="presentation"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSettingsOpen(false);
+                      setSubtitleSubmenuOpen(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        e.stopPropagation();
+                        setSettingsOpen(false);
+                        setSubtitleSubmenuOpen(false);
+                      }
+                    }}
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute top-10 right-0 bg-black/95 border border-white/15 rounded-2xl shadow-2xl overflow-hidden w-52"
+                    style={{ zIndex: 50 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="px-3 pt-3 pb-1 border-b border-white/10">
+                      <p className="text-xs font-bold text-white tracking-wide">
+                        Settings
+                      </p>
+                    </div>
+
+                    {/* Playback Speed */}
+                    <div className="px-3 pt-3 pb-1">
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest font-semibold mb-2">
+                        Speed
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[0.5, 1, 1.25, 1.5, 2].map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => handleSpeedChange(s)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                              playbackSpeed === s
+                                ? "bg-orange-500 text-white"
+                                : "bg-white/10 text-white/70 hover:bg-white/20"
+                            }`}
+                          >
+                            {s === 1 ? "1x" : `${s}x`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {(hasTracks || liveHasTracks) && (
+                      <>
+                        <div className="border-t border-white/10 mx-3 my-2" />
+                        {!subtitleSubmenuOpen ? (
+                          <div className="px-3 pb-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSubtitleSubmenuOpen(true);
+                              }}
+                              className="w-full flex items-center justify-between py-1 text-white/80 hover:text-white transition-colors"
+                            >
+                              <span className="text-[10px] uppercase tracking-widest font-semibold text-white/40">
+                                Subtitles
+                              </span>
+                              <span className="flex items-center gap-1 text-xs font-semibold text-white/70">
+                                {ccEnabled
+                                  ? captionTracks.find(
+                                      (t) => t.language === selectedLang,
+                                    )?.captionLabel ||
+                                    captionTracks.find(
+                                      (t) => t.language === selectedLang,
+                                    )?.language ||
+                                    selectedLang
+                                  : "Off"}
+                                <ChevronRight
+                                  size={12}
+                                  className="text-white/40"
+                                />
+                              </span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="px-3 pb-2">
+                            <div className="flex items-center gap-2 mb-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSubtitleSubmenuOpen(false);
+                                }}
+                                className="w-5 h-5 flex items-center justify-center text-white/60 hover:text-white transition-colors"
+                              >
+                                <ChevronLeft size={14} />
+                              </button>
+                              <p className="text-[10px] text-white/40 uppercase tracking-widest font-semibold">
+                                Subtitles
+                              </p>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleSettingsSubtitleSelect("off")
+                                }
+                                className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                  !ccEnabled
+                                    ? "bg-orange-500 text-white"
+                                    : "bg-white/10 text-white/70 hover:bg-white/20"
+                                }`}
+                              >
+                                <span>Off</span>
+                                {!ccEnabled && <Check size={12} />}
+                              </button>
+                              {captionTracks.map((track) => {
+                                const trackLabel =
+                                  track.captionLabel || track.language;
+                                const isActive =
+                                  ccEnabled && selectedLang === track.language;
+                                return (
+                                  <button
+                                    key={track.language}
+                                    type="button"
+                                    onClick={() =>
+                                      handleSettingsSubtitleSelect(
+                                        track.language,
+                                      )
+                                    }
+                                    className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                                      isActive
+                                        ? "bg-orange-500 text-white"
+                                        : "bg-white/10 text-white/70 hover:bg-white/20"
+                                    }`}
+                                  >
+                                    <span>{trackLabel}</span>
+                                    {isActive && <Check size={12} />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    <div className="border-t border-white/10 mx-3 my-2" />
+
+                    {/* Quality */}
+                    <div className="px-3 pb-3">
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest font-semibold mb-2">
+                        Quality
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(["Auto", "480p", "720p", "1080p"] as const).map(
+                          (q) => (
+                            <button
+                              key={q}
+                              type="button"
+                              onClick={() => handleQualityChange(q)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                                quality === q
+                                  ? "bg-orange-500 text-white"
+                                  : "bg-white/10 text-white/70 hover:bg-white/20"
+                              }`}
+                            >
+                              {q}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
 
           {/* Seek feedback flash */}
           <AnimatePresence>
@@ -1420,7 +1432,7 @@ export function VideoPlayerPage() {
             <button
               type="button"
               data-ocid="captions.open_modal_button"
-              onClick={() => setPage("upload")}
+              onClick={() => setCaptionModalOpen(true)}
               className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-orange text-white text-xs font-semibold hover:bg-orange/90 transition-colors"
             >
               Add Captions
@@ -1596,6 +1608,25 @@ export function VideoPlayerPage() {
         open={saveSheetOpen}
         onClose={() => setSaveSheetOpen(false)}
       />
+
+      <Sheet open={captionModalOpen} onOpenChange={setCaptionModalOpen}>
+        <SheetContent
+          side="bottom"
+          className="h-auto max-h-[85vh] overflow-y-auto bg-background border-t border-border/50 rounded-t-2xl px-4 pb-8"
+        >
+          <SheetHeader className="mb-4">
+            <SheetTitle className="text-left text-base font-bold">
+              Add Captions
+            </SheetTitle>
+          </SheetHeader>
+          {selectedVideo && (
+            <CaptionManager
+              videoId={selectedVideo.id}
+              onSaved={() => setCaptionModalOpen(false)}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </motion.div>
   );
 }

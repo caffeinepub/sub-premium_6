@@ -1,30 +1,44 @@
 # SUB PREMIUM
 
 ## Current State
-VideoPlayerPage.tsx has a working settings panel (⚙️) with Speed, Subtitles (conditional), and Quality sections. The panel uses framer-motion animation (duration: 0.15). Fullscreen targets the `<video>` element via `videoRef`. `hasTracks` is derived from `captionTracks` (backend query). The fullscreen button is top-left, CC + Settings top-right.
+The app has a caption system with:
+- `CaptionManager` component (upload .vtt or paste transcript)
+- `useGetCaptionTracks`, `useSetCaptionTrack`, `useRemoveCaptionTrack` hooks
+- VideoPlayerPage fetches caption tracks and renders `<track>` elements
+- CC button shows only if `captionTracks.length > 0`
+- Settings panel has Subtitles submenu only if tracks exist
+- "No captions yet" strip for creators — but clicking "Add Captions" sends to setPage("upload") (wrong)
+- CaptionManager is only in UploadPage with empty videoId
+- CaptionManager has both "Upload .vtt" and "Paste Transcript" tabs
 
 ## Requested Changes (Diff)
 
 ### Add
-- A `videoContainerRef` (RefObject<HTMLDivElement>) on the `div.relative.w-full.aspect-video` element
-- A `liveHasTracks` state (boolean) that reads from `videoRef.current.textTracks.length > 0` after video loads (on `onLoadedMetadata`), updated in state — use this as the condition for CC button and settings subtitles section in addition to existing `hasTracks`
+- In-player caption modal: when creator taps "Add Captions", open a Sheet/Dialog containing CaptionManager with the correct `videoId` (not navigate away)
+- After saving a caption track, invalidate the caption tracks query so CC button and Settings update immediately
+- "Add Captions" button visible for video creator below the player when no tracks exist
 
 ### Modify
-1. **Settings panel animation**: Change `transition={{ duration: 0.15 }}` on the settings panel `motion.div` to `transition={{ duration: 0 }}` so it opens instantly with no delay.
-2. **Fullscreen handler**: Change `handleFullscreen` to target `videoContainerRef.current` (the aspect-video div) instead of `videoRef.current`. This ensures controls overlay is included in fullscreen. Keep same API: `requestFullscreen()` / `exitFullscreen()`.
-3. **hasTracks check**: The condition `{hasTracks && (...)}` for both the CC button and the subtitles section in settings should use `hasTracks || liveHasTracks` so real text tracks loaded natively are also detected.
-4. **Subtitle submenu tracks**: When showing the subtitle language list in the submenu, also pull from `videoRef.current?.textTracks` to detect any natively-loaded tracks not in `captionTracks`. Merge both sources (deduplicate by language code).
-5. **Settings panel title**: Add a "Settings" header row at the top of the settings panel (text: "Settings", small, white/60, uppercase tracking-wide) to make it clear this is the settings panel.
+- CaptionManager: Remove the "Paste Transcript" tab entirely — only allow real .vtt file upload. This prevents any fake/auto-generated captions.
+- CaptionManager: After a track is saved, trigger a callback `onSaved()` so the parent (modal) can close or the player can refresh
+- VideoPlayerPage: Change the "Add Captions" button `onClick` from `setPage("upload")` to open a local state caption modal (`captionModalOpen`)
+- VideoPlayerPage: Import CaptionManager and render it inside a Sheet/Dialog when `captionModalOpen === true`
+- "No captions yet" strip: keep showing for creator (already working), just fix the button action
 
 ### Remove
-- Nothing to remove
+- "Paste Transcript" tab from CaptionManager (eliminates fake caption generation path)
+- Navigation to upload page from the "Add Captions" player button
 
 ## Implementation Plan
-1. Add `videoContainerRef = useRef<HTMLDivElement>(null)` near other refs
-2. Add `liveHasTracks` state, set it in `onLoadedMetadata` handler by checking `e.currentTarget.textTracks.length > 0`
-3. Attach `ref={videoContainerRef}` to the `div.relative.w-full.aspect-video`
-4. Update `handleFullscreen` to use `videoContainerRef.current`
-5. Change settings panel `motion.div` transition duration to 0
-6. Add "Settings" label at top of settings panel content
-7. Update all `hasTracks` checks to `hasTracks || liveHasTracks`
-8. In subtitle submenu, merge `captionTracks` with live `videoRef.current.textTracks` array
+1. Update `CaptionManager` component:
+   - Remove the Paste Transcript tab and all related state (transcript, durationMins, previewVtt, previewCaptions, handlePreview)
+   - Remove the `transcriptToVtt` function export or keep it but don't expose it in UI
+   - Add optional `onSaved?: () => void` prop — call it after successful `setTrack.mutateAsync`
+   - Keep multi-language chips, .vtt upload, existing tracks list, remove track button
+
+2. Update `VideoPlayerPage`:
+   - Add `captionModalOpen` state (boolean)
+   - Import `CaptionManager` and `Sheet/SheetContent/SheetHeader/SheetTitle` from shadcn
+   - Change the "Add Captions" button onClick to `setCaptionModalOpen(true)` instead of `setPage("upload")`
+   - Render a Sheet at the bottom with `<CaptionManager videoId={selectedVideo.id} onSaved={() => setCaptionModalOpen(false)} />`
+   - After save, the caption tracks query auto-refetches via react-query, updating CC button visibility and Settings subtitles list

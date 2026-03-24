@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { FileText, Info, Loader2, Plus, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -104,7 +103,7 @@ export function transcriptToVtt(text: string, durationMinutes: number): string {
   return lines.join("\n");
 }
 
-function parseVttCaptions(
+export function parseVttCaptions(
   vtt: string,
 ): { start: number; end: number; text: string }[] {
   const captions: { start: number; end: number; text: string }[] = [];
@@ -144,9 +143,10 @@ function parseVttCaptions(
 
 interface Props {
   videoId: string;
+  onSaved?: () => void;
 }
 
-export function CaptionManager({ videoId }: Props) {
+export function CaptionManager({ videoId, onSaved }: Props) {
   const { data: tracks = [], isLoading } = useGetCaptionTracks(videoId);
   const setTrack = useSetCaptionTrack();
   const removeTrack = useRemoveCaptionTrack();
@@ -155,12 +155,6 @@ export function CaptionManager({ videoId }: Props) {
   const [language, setLanguage] = useState("en");
   const [vttContent, setVttContent] = useState("");
   const [vttFileName, setVttFileName] = useState("");
-  const [transcript, setTranscript] = useState("");
-  const [durationMins, setDurationMins] = useState(5);
-  const [previewVtt, setPreviewVtt] = useState("");
-  const [previewCaptions, setPreviewCaptions] = useState<
-    { start: number; end: number; text: string }[]
-  >([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const selectedLang = LANGUAGES.find((l) => l.code === language);
@@ -174,14 +168,6 @@ export function CaptionManager({ videoId }: Props) {
       setVttContent((ev.target?.result as string) ?? "");
     };
     reader.readAsText(file);
-  };
-
-  const handlePreview = () => {
-    const vtt = transcriptToVtt(transcript, durationMins);
-    setPreviewVtt(vtt);
-    setVttContent(vtt);
-    const captions = parseVttCaptions(vtt);
-    setPreviewCaptions(captions);
   };
 
   const handleSave = async () => {
@@ -198,12 +184,10 @@ export function CaptionManager({ videoId }: Props) {
         vtt: vttContent,
       });
       toast.success(`Caption track added: ${label}`);
+      onSaved?.();
       setFormOpen(false);
       setVttContent("");
       setVttFileName("");
-      setTranscript("");
-      setPreviewVtt("");
-      setPreviewCaptions([]);
     } catch {
       toast.error("Failed to save caption track");
     }
@@ -222,9 +206,6 @@ export function CaptionManager({ videoId }: Props) {
     setFormOpen(false);
     setVttContent("");
     setVttFileName("");
-    setTranscript("");
-    setPreviewVtt("");
-    setPreviewCaptions([]);
   };
 
   return (
@@ -335,163 +316,30 @@ export function CaptionManager({ videoId }: Props) {
                 </div>
               </div>
 
-              {/* Source tabs */}
-              <Tabs defaultValue="upload">
-                <TabsList
-                  data-ocid="captions.tab"
-                  className="w-full bg-surface2/60"
+              {/* Upload VTT */}
+              <div className="mt-3">
+                <button
+                  type="button"
+                  data-ocid="captions.upload_button"
+                  onClick={() => fileRef.current?.click()}
+                  className="w-full border border-dashed border-border hover:border-orange/50 rounded-xl p-4 flex items-center gap-3 transition-colors text-left"
                 >
-                  <TabsTrigger value="upload" className="flex-1 text-xs">
-                    Upload .vtt file
-                  </TabsTrigger>
-                  <TabsTrigger value="paste" className="flex-1 text-xs">
-                    Paste Transcript
-                  </TabsTrigger>
-                </TabsList>
-
-                {/* Upload VTT */}
-                <TabsContent value="upload" className="mt-3">
-                  <button
-                    type="button"
-                    data-ocid="captions.upload_button"
-                    onClick={() => fileRef.current?.click()}
-                    className="w-full border border-dashed border-border hover:border-orange/50 rounded-xl p-4 flex items-center gap-3 transition-colors text-left"
-                  >
-                    <FileText
-                      size={18}
-                      className="text-muted-foreground flex-shrink-0"
-                    />
-                    <span className="text-sm text-muted-foreground truncate">
-                      {vttFileName || "Tap to select .vtt file"}
-                    </span>
-                  </button>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept=".vtt,text/vtt"
-                    className="hidden"
-                    onChange={handleFileChange}
+                  <FileText
+                    size={18}
+                    className="text-muted-foreground flex-shrink-0"
                   />
-                </TabsContent>
-
-                {/* Paste transcript */}
-                <TabsContent value="paste" className="mt-3 space-y-3">
-                  <Textarea
-                    data-ocid="captions.textarea"
-                    value={transcript}
-                    onChange={(e) => setTranscript(e.target.value)}
-                    placeholder={`Paste your script here...\n\nExample:\n0:00 Welcome to this video about cooking...\n0:15 Today we'll cover three delicious recipes...\n0:30 Let's start with the first dish...`}
-                    className="min-h-[150px] text-sm bg-surface2/60 border-border/50"
-                    style={{ resize: "vertical" }}
-                    rows={6}
-                  />
-
-                  {/* Tip */}
-                  <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-orange/8 border border-orange/20">
-                    <Info
-                      size={13}
-                      className="text-orange flex-shrink-0 mt-0.5"
-                    />
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      <span className="text-orange font-semibold">Tip:</span>{" "}
-                      Add timestamps like{" "}
-                      <code className="bg-surface2 px-1 rounded text-[11px]">
-                        0:30
-                      </code>{" "}
-                      at the start of lines to improve sync accuracy.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1">
-                      <Label className="text-xs text-muted-foreground mb-1 block">
-                        Video duration (minutes)
-                      </Label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={360}
-                        value={durationMins}
-                        onChange={(e) =>
-                          setDurationMins(Number(e.target.value) || 5)
-                        }
-                        className="w-full h-9 rounded-lg border border-border/60 bg-surface2 text-sm px-3 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handlePreview}
-                      disabled={!transcript.trim()}
-                      className="mt-5 flex-shrink-0 text-xs border-orange/40 text-orange hover:bg-orange/10"
-                    >
-                      Preview VTT
-                    </Button>
-                  </div>
-
-                  {/* Live preview panel */}
-                  <AnimatePresence>
-                    {previewCaptions.length > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0 }}
-                        className="space-y-2"
-                      >
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                          Caption Preview
-                        </p>
-                        {/* Mock video frame */}
-                        <div
-                          className="relative w-full rounded-lg overflow-hidden bg-black"
-                          style={{ aspectRatio: "16/9" }}
-                        >
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
-                              <div className="w-0 h-0 border-t-[8px] border-t-transparent border-b-[8px] border-b-transparent border-l-[14px] border-l-white/50 ml-1" />
-                            </div>
-                          </div>
-                          {/* Caption overlay - show first 3 lines */}
-                          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 w-[90%]">
-                            {previewCaptions.slice(0, 3).map((cap, i) => (
-                              <motion.div
-                                key={cap.start}
-                                initial={{ opacity: 0 }}
-                                animate={{
-                                  opacity: i === 0 ? 1 : 0.5 - i * 0.15,
-                                }}
-                                className="px-2 py-0.5 rounded text-center"
-                                style={{ backgroundColor: "rgba(0,0,0,0.75)" }}
-                              >
-                                <span className="text-white text-[11px] leading-snug">
-                                  {cap.text}
-                                </span>
-                              </motion.div>
-                            ))}
-                          </div>
-                          {/* Time indicator */}
-                          <div className="absolute bottom-1 right-2">
-                            <span className="text-white/40 text-[9px]">
-                              {previewCaptions.length} captions generated
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* VTT output */}
-                        <div className="rounded-lg bg-background border border-border/60 overflow-hidden">
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 py-1.5 border-b border-border/40">
-                            Generated VTT Output
-                          </p>
-                          <pre className="text-[11px] text-muted-foreground p-3 overflow-x-auto max-h-40 overflow-y-auto">
-                            {previewVtt}
-                          </pre>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </TabsContent>
-              </Tabs>
+                  <span className="text-sm text-muted-foreground truncate">
+                    {vttFileName || "Tap to select .vtt file"}
+                  </span>
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".vtt,text/vtt"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+              </div>
 
               {/* Save / Cancel */}
               <div className="flex gap-2 pt-1">
