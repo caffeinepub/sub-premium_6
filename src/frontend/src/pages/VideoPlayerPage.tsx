@@ -29,6 +29,7 @@ import {
   Share2,
   SkipBack,
   SkipForward,
+  ThumbsDown,
   ThumbsUp,
   X,
 } from "lucide-react";
@@ -43,13 +44,13 @@ import { VideoCard } from "../components/VideoCard";
 import { useApp } from "../context/AppContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import {
+  useDislikeVideo,
   useGetCaptionTracks,
   useIncrementViews,
   useLikeVideo,
   useListVideos,
   usePostComment,
   useRecordView,
-  useUnlikeVideo,
   useUpdateWatchHistory,
   useVideoEngagement,
 } from "../hooks/useQueries";
@@ -136,11 +137,14 @@ export function VideoPlayerPage() {
   const { data: engagement } = useVideoEngagement(selectedVideo?.id ?? null);
   const liked = engagement?.isLiked ?? false;
   const likeCount = Number(engagement?.likeCount ?? 0);
+  const dislikeCount = Number(engagement?.dislikeCount ?? 0);
+  const userReaction = (engagement as any)?.userReaction ?? "none";
+  const disliked = userReaction === "dislike";
   const viewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const incrementViews = useIncrementViews();
   const recordView = useRecordView();
   const likeVideoMutation = useLikeVideo();
-  const unlikeVideoMutation = useUnlikeVideo();
+  const dislikeVideoMutation = useDislikeVideo();
   const postCommentMutation = usePostComment();
   const updateHistory = useUpdateWatchHistory();
   const { data: allVideos } = useListVideos();
@@ -787,31 +791,47 @@ export function VideoPlayerPage() {
       return;
     }
     if (!selectedVideo) return;
-    if (liked) {
-      unlikeVideoMutation.mutate(selectedVideo.id);
-    } else {
-      likeVideoMutation.mutate(selectedVideo.id);
-      trackBehavior(selectedVideo.id, "like");
+    likeVideoMutation.mutate(selectedVideo.id);
+    trackBehavior(selectedVideo.id, "like");
+  };
+
+  const handleDislike = async () => {
+    if (!isLoggedIn) {
+      toast.error("Please log in to react");
+      return;
     }
+    if (!selectedVideo) return;
+    dislikeVideoMutation.mutate(selectedVideo.id);
   };
 
   const handleShare = async () => {
-    const text = `Watch "${selectedVideo.title}" on SUB PREMIUM`;
+    if (!selectedVideo) return;
+    const url = window.location.href;
+    const title = selectedVideo.title;
     if (navigator.share) {
-      await navigator
-        .share({ title: selectedVideo.title, text })
-        .catch(() => {});
+      await navigator.share({ title, url }).catch(() => {});
     } else {
-      await navigator.clipboard.writeText(text).catch(() => {});
+      await navigator.clipboard.writeText(url).catch(() => {});
+      toast.success("Link copied");
     }
   };
 
   const handleDownload = () => {
-    if (!videoUrl) return;
+    if (!selectedVideo) return;
+    const url = videoUrl;
+    if (!url || url.startsWith("blob:")) {
+      toast.error("Download not available");
+      return;
+    }
+    toast.info("Downloading...");
+    const filename = `${selectedVideo.title.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.mp4`;
     const a = document.createElement("a");
-    a.href = videoUrl;
-    a.download = `${selectedVideo.title}.mp4`;
+    a.href = url;
+    a.download = filename;
+    a.target = "_blank";
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
   };
 
   const handleComment = async () => {
@@ -1635,8 +1655,14 @@ export function VideoPlayerPage() {
       )}
 
       {/* Page body */}
-      <div className="px-4 pt-3 pb-4 space-y-4">
-        <div>
+      <div className="pb-32">
+        {/* ─── Divider helper ─── */}
+        {/* inline component used throughout */}
+
+        {/* ═══════════════════════════════════════
+            SECTION 1 — Title + Info
+        ═══════════════════════════════════════ */}
+        <div style={{ padding: "12px 16px" }}>
           <h1 className="text-foreground font-bold text-base leading-snug">
             {selectedVideo.title}
           </h1>
@@ -1693,27 +1719,145 @@ export function VideoPlayerPage() {
           </button>
         </div>
 
-        <button
-          type="button"
-          className="w-full text-left bg-surface2/60 rounded-xl px-3 py-2.5 text-sm text-muted-foreground"
-          onClick={() => setShowDesc((s) => !s)}
-        >
-          {showDesc ? (
-            <span>
-              {(selectedVideo as any).description || "No description provided."}
-            </span>
-          ) : (
-            <span className="line-clamp-1">
-              {(selectedVideo as any).description || "No description provided."}
-              <span className="text-accent ml-1 font-medium">more</span>
-            </span>
-          )}
-        </button>
+        {/* Divider */}
+        <div
+          style={{
+            width: "100%",
+            height: "1px",
+            background: "rgba(255,255,255,0.1)",
+          }}
+        />
 
-        {/* Smart Suggestion Banner */}
+        {/* ═══════════════════════════════════════
+            SECTION 2 — Action Buttons
+        ═══════════════════════════════════════ */}
+        {/* Divider above */}
+        <div
+          style={{
+            width: "100%",
+            height: "1px",
+            background: "rgba(255,255,255,0.1)",
+          }}
+        />
+        <div style={{ padding: "10px 16px" }}>
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+            <button
+              type="button"
+              data-ocid="player.like_button"
+              onClick={handleLike}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors flex-shrink-0 ${
+                liked
+                  ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/40"
+                  : "bg-surface2 text-foreground hover:bg-surface2/80"
+              }`}
+            >
+              <ThumbsUp size={15} />
+              <span>{likeCount > 0 ? likeCount.toLocaleString() : "Like"}</span>
+            </button>
+
+            <button
+              type="button"
+              data-ocid="player.secondary_button"
+              onClick={handleDislike}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors flex-shrink-0 ${
+                disliked
+                  ? "bg-surface2 text-orange-400 border border-orange-400/40"
+                  : "bg-surface2 text-foreground hover:bg-surface2/80"
+              }`}
+            >
+              <ThumbsDown size={15} />
+              <span>
+                {dislikeCount > 0 ? dislikeCount.toLocaleString() : "Dislike"}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              data-ocid="player.share_button"
+              onClick={handleShare}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-sm font-medium transition-colors flex-shrink-0"
+            >
+              <Share2 size={15} />
+              <span>Share</span>
+            </button>
+
+            <button
+              type="button"
+              data-ocid="player.save_button"
+              onClick={() => setSaveSheetOpen(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-sm font-medium transition-colors flex-shrink-0"
+            >
+              {isVideoInAnyPlaylist(selectedVideo.id) ? (
+                <BookmarkCheck size={15} className="text-orange" />
+              ) : (
+                <Bookmark size={15} />
+              )}
+              <span>Save</span>
+            </button>
+
+            <button
+              type="button"
+              data-ocid="player.download_button"
+              onClick={handleDownload}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-sm font-medium transition-colors flex-shrink-0"
+            >
+              <Download size={15} />
+              <span>Download</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div
+          style={{
+            width: "100%",
+            height: "1px",
+            background: "rgba(255,255,255,0.1)",
+          }}
+        />
+
+        {/* ═══════════════════════════════════════
+            SECTION 3 — Description
+        ═══════════════════════════════════════ */}
+        <div style={{ padding: "12px 16px" }}>
+          <button
+            type="button"
+            className="w-full text-left text-sm text-muted-foreground"
+            onClick={() => setShowDesc((s) => !s)}
+          >
+            {showDesc ? (
+              <span className="whitespace-pre-line leading-relaxed">
+                {(selectedVideo as any).description ||
+                  "No description provided."}
+              </span>
+            ) : (
+              <span className="line-clamp-3 leading-relaxed">
+                {(selectedVideo as any).description ||
+                  "No description provided."}
+              </span>
+            )}
+            <span className="text-accent ml-1 font-semibold text-xs">
+              {showDesc ? " Show less" : " Show more"}
+            </span>
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div
+          style={{
+            width: "100%",
+            height: "1px",
+            background: "rgba(255,255,255,0.1)",
+          }}
+        />
+
+        {/* ═══════════════════════════════════════
+            SECTION 4 — Smart Suggestion Banner (conditional)
+        ═══════════════════════════════════════ */}
         {suggestionBanner && !ccEnabled && (
-          <div data-ocid="player.card" className="mx-0 mt-0 mb-1">
+          <div style={{ padding: "8px 16px" }}>
             <motion.div
+              data-ocid="player.card"
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
@@ -1774,83 +1918,48 @@ export function VideoPlayerPage() {
           </div>
         )}
 
-        {/* No-captions strip — only visible to the creator */}
-        {!hasTracks && isCreator && (
-          <div
-            data-ocid="player.card"
-            className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border border-orange/25 bg-orange/5"
-          >
-            <p className="text-xs text-muted-foreground leading-snug">
-              <span className="text-orange font-semibold">No captions yet</span>{" "}
-              — add captions for better reach and accessibility.
-            </p>
-            <button
-              type="button"
-              data-ocid="captions.open_modal_button"
-              onClick={() => setCaptionModalOpen(true)}
-              className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-orange text-white text-xs font-semibold hover:bg-orange/90 transition-colors"
-            >
-              Add Captions
-            </button>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          <button
-            type="button"
-            data-ocid="player.like_button"
-            onClick={handleLike}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors flex-shrink-0 ${
-              liked
-                ? "bg-accent text-black"
-                : "bg-surface2 text-foreground hover:bg-surface2/80"
-            }`}
-          >
-            <ThumbsUp size={15} />
-            <span>{likeCount > 0 ? likeCount.toLocaleString() : "Like"}</span>
-          </button>
-
-          <button
-            type="button"
-            data-ocid="player.share_button"
-            onClick={handleShare}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-sm font-medium transition-colors flex-shrink-0"
-          >
-            <Share2 size={15} />
-            <span>Share</span>
-          </button>
-
-          <button
-            type="button"
-            data-ocid="player.save_button"
-            onClick={() => setSaveSheetOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-sm font-medium transition-colors flex-shrink-0"
-          >
-            {isVideoInAnyPlaylist(selectedVideo.id) ? (
-              <BookmarkCheck size={15} className="text-orange" />
-            ) : (
-              <Bookmark size={15} />
+        {/* ═══════════════════════════════════════
+            SECTION 5 — Captions
+        ═══════════════════════════════════════ */}
+        <div style={{ padding: "10px 16px" }}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Captions
+                size={14}
+                className="text-muted-foreground flex-shrink-0"
+              />
+              <span className="text-xs text-muted-foreground">
+                {hasTracks
+                  ? `Captions: ${captionTracks.map((t) => t.captionLabel || t.language).join(", ")}`
+                  : "No captions yet"}
+              </span>
+            </div>
+            {isCreator && (
+              <button
+                type="button"
+                data-ocid="captions.open_modal_button"
+                onClick={() => setCaptionModalOpen(true)}
+                className="flex-shrink-0 px-3 py-1 rounded-lg bg-orange/10 text-orange text-xs font-semibold hover:bg-orange/20 transition-colors border border-orange/25"
+              >
+                {hasTracks ? "Manage" : "Add Captions"}
+              </button>
             )}
-            <span>Save</span>
-          </button>
-
-          <button
-            type="button"
-            data-ocid="player.download_button"
-            onClick={handleDownload}
-            disabled={!videoUrl}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-surface2 text-foreground hover:bg-surface2/80 text-sm font-medium transition-colors flex-shrink-0 disabled:opacity-40"
-          >
-            <Download size={15} />
-            <span>Download</span>
-          </button>
+          </div>
         </div>
 
-        <div className="border-t border-border/40" />
+        {/* Divider */}
+        <div
+          style={{
+            width: "100%",
+            height: "1px",
+            background: "rgba(255,255,255,0.1)",
+          }}
+        />
 
-        {/* Comments */}
-        <div>
+        {/* ═══════════════════════════════════════
+            SECTION 6 — Comments
+        ═══════════════════════════════════════ */}
+        <div style={{ padding: "12px 16px" }}>
           <div className="flex items-center gap-2 mb-3">
             <MessageCircle size={15} className="text-muted-foreground" />
             <span className="text-sm font-semibold">
@@ -1858,27 +1967,44 @@ export function VideoPlayerPage() {
             </span>
           </div>
 
-          <div className="space-y-3">
-            {commentList.map((c, i) => (
-              <CommentItem
-                key={c.id || i}
-                comment={c}
-                index={i + 1}
-                userLang={userLang}
-              />
-            ))}
+          <div>
             {commentList.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-4">
                 {t("comment.noComments")}
               </p>
             )}
+            {commentList.map((c, i) => (
+              <div key={c.id || i}>
+                <CommentItem comment={c} index={i + 1} userLang={userLang} />
+                {i < commentList.length - 1 && (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "1px",
+                      background: "rgba(255,255,255,0.07)",
+                      margin: "8px 0",
+                    }}
+                  />
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="border-t border-border/40" />
+        {/* Divider */}
+        <div
+          style={{
+            width: "100%",
+            height: "1px",
+            background: "rgba(255,255,255,0.1)",
+          }}
+        />
 
+        {/* ═══════════════════════════════════════
+            SECTION 7 — Recommended
+        ═══════════════════════════════════════ */}
         {recommended.length > 0 && (
-          <div>
+          <div style={{ padding: "12px 16px" }}>
             <h2 className="text-sm font-semibold mb-3">Recommended for You</h2>
             <div className="space-y-4">
               {recommended.map((video: Video, index: number) => (
@@ -1893,7 +2019,6 @@ export function VideoPlayerPage() {
           </div>
         )}
       </div>
-
       {/* Sticky Comment Input Bar — above BottomNav */}
       <div
         data-ocid="player.comment_bar"

@@ -80,6 +80,8 @@ export interface Comment {
 export interface VideoEngagement {
     viewCount: bigint;
     likeCount: bigint;
+    dislikeCount: bigint;
+    userReaction: string;
     isLiked: boolean;
     comments: Array<Comment>;
 }
@@ -135,6 +137,7 @@ export interface backendInterface {
     setCaptionTrack(videoId: string, language: string, captionLabel: string, vtt: string): Promise<void>;
     subscribe(creatorId: Principal): Promise<void>;
     unlikeVideo(videoId: string): Promise<void>;
+    dislikeVideo(videoId: string): Promise<void>;
     unsubscribe(creatorId: Principal): Promise<void>;
     updateSchedule(videoId: string, publishTimeNano: bigint): Promise<void>;
     updateSettings(settings: UserSettings): Promise<void>;

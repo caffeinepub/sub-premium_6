@@ -475,6 +475,20 @@ export function useUnlikeVideo() {
   });
 }
 
+export function useDislikeVideo() {
+  const { actor } = useActor();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (videoId: string) => {
+      if (!actor) throw new Error("Not authenticated");
+      await (actor as unknown as BackendFull).dislikeVideo(videoId);
+    },
+    onSuccess: (_data, videoId) => {
+      qc.invalidateQueries({ queryKey: ["engagement", videoId] });
+    },
+  });
+}
+
 export function usePostComment() {
   const { actor } = useActor();
   const qc = useQueryClient();

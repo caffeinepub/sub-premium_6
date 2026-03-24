@@ -63,6 +63,8 @@ actor {
   public type VideoEngagement = {
     viewCount : Nat;
     likeCount : Nat;
+    dislikeCount : Nat;
+    userReaction : Text; // "like" | "dislike" | "none"
     isLiked : Bool;
     comments : [Comment];
   };
@@ -145,6 +147,8 @@ actor {
   stable var videoViewers = Map.empty<Text, [Text]>();
   // videoId -> list of userIds (Text) who liked
   stable var videoLikes = Map.empty<Text, [Text]>();
+  // videoId -> list of userIds (Text) who disliked
+  stable var videoDislikes = Map.empty<Text, [Text]>();
   // videoId -> list of comments
   stable var videoComments = Map.empty<Text, [Comment]>();
 
@@ -472,8 +476,14 @@ actor {
     let callerId = caller.toText();
     let likers = switch (videoLikes.get(videoId)) { case (null) { [] }; case (?l) { l } };
     let alreadyLiked = likers.filter(func(uid : Text) : Bool { uid == callerId }).size() > 0;
-    if (not alreadyLiked) {
+    if (alreadyLiked) {
+      // Toggle off
+      videoLikes.add(videoId, likers.filter(func(uid : Text) : Bool { uid != callerId }));
+    } else {
+      // Add like, remove any dislike
       videoLikes.add(videoId, [callerId].concat(likers));
+      let dislikers = switch (videoDislikes.get(videoId)) { case (null) { [] }; case (?d) { d } };
+      videoDislikes.add(videoId, dislikers.filter(func(uid : Text) : Bool { uid != callerId }));
     };
   };
 
@@ -482,6 +492,22 @@ actor {
     let callerId = caller.toText();
     let likers = switch (videoLikes.get(videoId)) { case (null) { [] }; case (?l) { l } };
     videoLikes.add(videoId, likers.filter(func(uid : Text) : Bool { uid != callerId }));
+  };
+
+  public shared ({ caller }) func dislikeVideo(videoId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) { Runtime.trap("Unauthorized") };
+    let callerId = caller.toText();
+    let dislikers = switch (videoDislikes.get(videoId)) { case (null) { [] }; case (?d) { d } };
+    let alreadyDisliked = dislikers.filter(func(uid : Text) : Bool { uid == callerId }).size() > 0;
+    if (alreadyDisliked) {
+      // Toggle off
+      videoDislikes.add(videoId, dislikers.filter(func(uid : Text) : Bool { uid != callerId }));
+    } else {
+      // Add dislike, remove any like
+      videoDislikes.add(videoId, [callerId].concat(dislikers));
+      let likers = switch (videoLikes.get(videoId)) { case (null) { [] }; case (?l) { l } };
+      videoLikes.add(videoId, likers.filter(func(uid : Text) : Bool { uid != callerId }));
+    };
   };
 
   public query func getLikeCount(videoId : Text) : async Nat {
@@ -541,13 +567,19 @@ actor {
   public query ({ caller }) func getVideoEngagement(videoId : Text) : async VideoEngagement {
     let viewCount = switch (videos.get(videoId)) { case (null) { 0 }; case (?d) { d.views } };
     let likers = switch (videoLikes.get(videoId)) { case (null) { [] }; case (?l) { l } };
+    let dislikers = switch (videoDislikes.get(videoId)) { case (null) { [] }; case (?d) { d } };
     let likeCount = likers.size();
-    let isLikedByCaller = if (AccessControl.hasPermission(accessControlState, caller, #user)) {
+    let dislikeCount = dislikers.size();
+    let (isLikedByCaller, userReaction) = if (AccessControl.hasPermission(accessControlState, caller, #user)) {
       let callerId = caller.toText();
-      likers.filter(func(uid : Text) : Bool { uid == callerId }).size() > 0;
-    } else { false };
+      let liked = likers.filter(func(uid : Text) : Bool { uid == callerId }).size() > 0;
+      let disliked = dislikers.filter(func(uid : Text) : Bool { uid == callerId }).size() > 0;
+      if (liked) { (true, "like") }
+      else if (disliked) { (false, "dislike") }
+      else { (false, "none") };
+    } else { (false, "none") };
     let comments = switch (videoComments.get(videoId)) { case (null) { [] }; case (?c) { c } };
-    { viewCount; likeCount; isLiked = isLikedByCaller; comments };
+    { viewCount; likeCount; dislikeCount; userReaction; isLiked = isLikedByCaller; comments };
   };
 
   // ── Scheduling Functions ────────────────────────────────────────────
