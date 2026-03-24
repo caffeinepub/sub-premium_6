@@ -26,10 +26,8 @@ export type UploadStatus =
   | "ready"
   | "error";
 
-/** 500 MB — warn user, upload still proceeds */
-const MAX_WARN_SIZE = 500 * 1024 * 1024;
-/** 1 GB — hard block */
-const MAX_BLOCK_SIZE = 1 * 1024 * 1024 * 1024;
+/** 2 GB — hard block */
+const MAX_BLOCK_SIZE = 2 * 1024 * 1024 * 1024;
 /** StorageClient internal chunk size (1 MB) */
 const CHUNK_SIZE_BYTES = 1024 * 1024;
 /** 3 MB per streaming chunk for memory-safe reads */
@@ -174,9 +172,6 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleOffline = () => {
       setIsOffline(true);
-      console.info(
-        "[UploadContext] Network offline — upload will retry when connection restores.",
-      );
     };
 
     const handleOnline = () => {
@@ -309,16 +304,12 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       if (sizeBytes > MAX_BLOCK_SIZE) {
         setStatus("error");
         setErrorMsg(
-          "File exceeds 1 GB limit. Please compress or trim your video.",
+          "File exceeds 2 GB limit. Please compress or trim your video.",
         );
         return;
       }
 
-      setFileSizeWarning(
-        sizeBytes > MAX_WARN_SIZE
-          ? `Large file (${sizeMB.toFixed(0)} MB) — upload may take longer. Consider compressing for faster results.`
-          : null,
-      );
+      setFileSizeWarning(null);
 
       // ── Setup ─────────────────────────────────────────────────────────
       isRunningRef.current = true;

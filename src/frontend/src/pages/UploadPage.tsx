@@ -34,8 +34,7 @@ import {
 import { getFileFingerprint } from "../utils/uploadDB";
 
 const MAX_BLOCK_MB = 2048; // 2 GB
-const MAX_WARN_MB = 500; // 500 MB
-const MAX_DURATION_SECONDS = 7200; // 2 hours
+const MAX_DURATION_SECONDS = 3600; // 1 hour
 
 const RECENT_FINGERPRINTS_KEY = "recentUploadFingerprints";
 const MAX_RECENT = 5;
@@ -92,7 +91,6 @@ export function UploadPage() {
     title: string;
     publishTime: number;
   } | null>(null);
-  const [isPublishing, setIsPublishing] = useState(false);
   const { actor } = useActor();
   const prefs = loadDateTimePrefs();
 
@@ -110,7 +108,6 @@ export function UploadPage() {
 
   const videoSizeMB = videoFile ? videoFile.size / (1024 * 1024) : 0;
   const isFileTooLarge = videoSizeMB > MAX_BLOCK_MB;
-  const showFileSizeWarning = !isFileTooLarge && videoSizeMB > MAX_WARN_MB;
 
   const handleVideoSelect = (file: File | undefined) => {
     if (!file) return;
@@ -133,9 +130,7 @@ export function UploadPage() {
   const handleDurationLoaded = (duration: number) => {
     setPreviewDuration(duration);
     if (duration > MAX_DURATION_SECONDS) {
-      setDurationError(
-        "Video too long — please shorten or compress (max 2 hours)",
-      );
+      setDurationError("Video too long — maximum duration is 1 hour");
     } else {
       setDurationError("");
     }
@@ -228,27 +223,15 @@ export function UploadPage() {
     if (videoInputRef.current) videoInputRef.current.value = "";
     if (thumbInputRef.current) thumbInputRef.current.value = "";
 
-    // Navigate: scheduled → instant, publish now → brief processing state
-    if (scheduleEnabled) {
-      setPage("home");
-    } else {
-      setIsPublishing(true);
-      setTimeout(() => {
-        setIsPublishing(false);
-        setPage("home");
-      }, 1500);
-    }
+    // Navigate to Home immediately so upload runs in the background
+    setPage("home");
   };
 
   // Step indicator: 1 = no file, 2 = file selected, 3 = has active uploads
   const currentStep = hasActive ? 3 : videoFile ? 2 : 1;
 
   const canUpload =
-    !!videoFile &&
-    !!title.trim() &&
-    !isFileTooLarge &&
-    !durationError &&
-    !isPublishing;
+    !!videoFile && !!title.trim() && !isFileTooLarge && !durationError;
 
   return (
     <motion.div
@@ -384,7 +367,7 @@ export function UploadPage() {
                   Tap to select video
                 </p>
                 <p className="text-xs text-muted-foreground/60">
-                  MP4, MOV, AVI, WebM · Max 2 GB · Max 2 hours
+                  MP4, MOV, AVI, WebM · Max 2 GB · Max 1 hour
                 </p>
               </>
             )}
@@ -433,24 +416,6 @@ export function UploadPage() {
                 className="text-destructive flex-shrink-0"
               />
               <p className="text-xs text-destructive">{durationError}</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* File size warning */}
-        <AnimatePresence>
-          {showFileSizeWarning && (
-            <motion.div
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="flex items-center gap-2 rounded-xl border border-orange/30 bg-orange/10 px-4 py-3"
-            >
-              <AlertTriangle size={15} className="text-orange flex-shrink-0" />
-              <p className="text-xs text-orange">
-                Large file ({videoSizeMB.toFixed(0)} MB) — upload may take
-                longer. Consider compressing for faster results.
-              </p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -710,9 +675,7 @@ export function UploadPage() {
           disabled={!canUpload}
           className="w-full bg-orange hover:bg-orange/90 text-white border-none font-semibold"
         >
-          {isPublishing ? (
-            "Processing..."
-          ) : scheduleEnabled ? (
+          {scheduleEnabled ? (
             <>
               <CalendarClock size={16} className="mr-2" />
               Schedule Premiere

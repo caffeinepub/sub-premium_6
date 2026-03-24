@@ -20,29 +20,20 @@ export function UploadProgressBar() {
 
   const getLabel = () => {
     if (showOffline) return "Offline";
+    if (upload.isResuming && upload.status === "uploading")
+      return "Resuming...";
     if (upload.status === "uploading") {
-      if (upload.isResuming) return `Resuming from ${upload.progress}%`;
-      return `${upload.progress}%`;
+      if (upload.totalMB >= 500) return "Uploading large video...";
+      return "Uploading...";
     }
     if (upload.status === "processing") return "Processing...";
-    if (upload.status === "ready") return "Ready!";
+    if (upload.status === "ready") return "Ready";
     if (upload.status === "error") return "Failed";
     return "";
   };
 
   const canDismiss = upload.status === "ready" || upload.status === "error";
-
-  // "X.X / Y.Y MB" display
-  const mbLabel =
-    upload.status === "uploading" && upload.totalMB > 0 && !showOffline
-      ? `${upload.uploadedMB.toFixed(1)} / ${upload.totalMB.toFixed(1)} MB`
-      : null;
-
-  // "Chunk N/T" display
-  const chunkLabel =
-    upload.status === "uploading" && upload.totalChunks > 0 && !showOffline
-      ? `Chunk ${upload.chunkIndex}/${upload.totalChunks}`
-      : null;
+  const isProcessing = upload.status === "processing";
 
   return (
     <AnimatePresence>
@@ -81,13 +72,6 @@ export function UploadProgressBar() {
                 <p className="text-xs font-medium truncate text-foreground">
                   {upload.title || "Uploading video"}
                 </p>
-                {upload.isResuming &&
-                  upload.status === "uploading" &&
-                  !showOffline && (
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-sky-500/20 text-sky-400 uppercase tracking-wide flex-shrink-0">
-                      Resuming
-                    </span>
-                  )}
                 {showOffline && (
                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 uppercase tracking-wide flex-shrink-0">
                     Paused
@@ -95,22 +79,25 @@ export function UploadProgressBar() {
                 )}
               </div>
 
-              {/* Progress bar */}
-              <div className="flex items-center gap-2 mt-0.5">
-                {(upload.status === "uploading" ||
-                  upload.status === "processing") && (
+              {/* Progress bar + label */}
+              <div className="flex items-center gap-2 mt-1">
+                {(upload.status === "uploading" || isProcessing) && (
                   <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
-                    <motion.div
-                      className={`h-full rounded-full ${
-                        showOffline
-                          ? "bg-amber-400/50"
-                          : upload.isResuming
-                            ? "bg-sky-400"
-                            : "bg-orange"
-                      }`}
-                      style={{ width: `${upload.progress}%` }}
-                      transition={{ type: "tween", ease: "linear" }}
-                    />
+                    {isProcessing ? (
+                      <div className="h-full w-full rounded-full bg-orange/60 animate-pulse" />
+                    ) : (
+                      <motion.div
+                        className={`h-full rounded-full ${
+                          showOffline
+                            ? "bg-amber-400/50"
+                            : upload.isResuming
+                              ? "bg-sky-400"
+                              : "bg-orange"
+                        }`}
+                        style={{ width: `${upload.progress}%` }}
+                        transition={{ type: "tween", ease: "linear" }}
+                      />
+                    )}
                   </div>
                 )}
                 <span
@@ -128,34 +115,17 @@ export function UploadProgressBar() {
                 >
                   {getLabel()}
                 </span>
+                {upload.status === "uploading" && !showOffline && (
+                  <span className="text-[11px] text-muted-foreground flex-shrink-0">
+                    {upload.progress}%
+                  </span>
+                )}
               </div>
 
               {/* Offline sub-label */}
               {showOffline && (
                 <p className="text-[10px] text-amber-400/70 mt-0.5">
                   Waiting for network...
-                </p>
-              )}
-
-              {/* MB + Chunk + Speed row */}
-              {upload.status === "uploading" && !showOffline && (
-                <p className="text-[10px] text-muted-foreground mt-0.5 flex gap-2 flex-wrap">
-                  {mbLabel && (
-                    <span className="font-medium text-foreground/60">
-                      {mbLabel}
-                    </span>
-                  )}
-                  {chunkLabel && (
-                    <span className="opacity-50">{chunkLabel}</span>
-                  )}
-                  {upload.uploadSpeed && (
-                    <span className="text-orange/70">{upload.uploadSpeed}</span>
-                  )}
-                  {upload.timeRemaining && (
-                    <span className="opacity-50">
-                      ~{upload.timeRemaining} left
-                    </span>
-                  )}
                 </p>
               )}
             </div>

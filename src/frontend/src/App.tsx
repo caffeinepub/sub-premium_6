@@ -1,11 +1,12 @@
 import { Toaster } from "@/components/ui/sonner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AnimatePresence } from "motion/react";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { IntroScreen } from "./IntroScreen";
 import type { Video } from "./backend";
 import { BottomNav } from "./components/BottomNav";
+import { ErrorBoundary, PageLoadingFallback } from "./components/ErrorBoundary";
 import { FloatingMiniPlayer } from "./components/FloatingMiniPlayer";
 import { GlobalUploadManager } from "./components/GlobalUploadManager";
 import { Header } from "./components/Header";
@@ -14,19 +15,10 @@ import { ManageStorageSheet } from "./components/ManageStorageSheet";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { AppProvider, useApp } from "./context/AppContext";
 import { UploadQueueProvider } from "./context/UploadQueueContext";
+import { useActivityKeepAlive } from "./hooks/useActivityKeepAlive";
 import { InternetIdentityProvider } from "./hooks/useInternetIdentity";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import { I18nProvider, useI18n } from "./i18n";
-import { CalendarPage } from "./pages/CalendarPage";
-import { ChannelPage } from "./pages/ChannelPage";
-import { HistoryPage } from "./pages/HistoryPage";
-import { HomePage } from "./pages/HomePage";
-import { MenuPage } from "./pages/MenuPage";
-import { PlaylistPage } from "./pages/PlaylistPage";
-import { PremierePreviewPage } from "./pages/PremierePreviewPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { UploadPage } from "./pages/UploadPage";
-import { VideoPlayerPage } from "./pages/VideoPlayerPage";
 import {
   getScheduledVideos,
   markScheduledVideoNotified,
@@ -42,9 +34,48 @@ import {
   isStorageHigh,
 } from "./utils/storageManager";
 
+// ── Lazy-loaded page components ──────────────────────────────────────────────
+const HomePage = lazy(() =>
+  import("./pages/HomePage").then((m) => ({ default: m.HomePage })),
+);
+const VideoPlayerPage = lazy(() =>
+  import("./pages/VideoPlayerPage").then((m) => ({
+    default: m.VideoPlayerPage,
+  })),
+);
+const UploadPage = lazy(() =>
+  import("./pages/UploadPage").then((m) => ({ default: m.UploadPage })),
+);
+const HistoryPage = lazy(() =>
+  import("./pages/HistoryPage").then((m) => ({ default: m.HistoryPage })),
+);
+const MenuPage = lazy(() =>
+  import("./pages/MenuPage").then((m) => ({ default: m.MenuPage })),
+);
+const PlaylistPage = lazy(() =>
+  import("./pages/PlaylistPage").then((m) => ({ default: m.PlaylistPage })),
+);
+const SettingsPage = lazy(() =>
+  import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+);
+const ChannelPage = lazy(() =>
+  import("./pages/ChannelPage").then((m) => ({ default: m.ChannelPage })),
+);
+const CalendarPage = lazy(() =>
+  import("./pages/CalendarPage").then((m) => ({ default: m.CalendarPage })),
+);
+const PremierePreviewPage = lazy(() =>
+  import("./pages/PremierePreviewPage").then((m) => ({
+    default: m.PremierePreviewPage,
+  })),
+);
+
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 1 },
+    queries: {
+      retry: 2,
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+    },
   },
 });
 
@@ -55,6 +86,9 @@ function AppContent() {
   const [searchTerm, setSearchTerm] = useState("");
   const [storageBannerVisible, setStorageBannerVisible] = useState(false);
   const [manageStorageOpen, setManageStorageOpen] = useState(false);
+
+  // Background activity keepalive — prevents inactivity expiration
+  useActivityKeepAlive();
 
   useEffect(() => {
     autoCleanupOldEntries();
@@ -76,13 +110,11 @@ function AppContent() {
       for (const s of scheduled) {
         if (!s.notified && s.publishTime <= now) {
           markScheduledVideoNotified(s.videoId);
-          // Dispatch event so PremierePreviewPage and VideoCards can react
           window.dispatchEvent(
             new CustomEvent("videoPublished", {
               detail: { videoId: s.videoId },
             }),
           );
-          // Check if current user has a reminder for this video
           const userId = identity?.getPrincipal().toString();
           if (userId) {
             const reminders = getPendingReminders(userId);
@@ -107,7 +139,6 @@ function AppContent() {
 
   const handleVideoSelect = (video: Video) => {
     setSelectedVideo(video);
-    // Safety check: never allow player for upcoming/locked videos
     if (isUpcoming(video)) {
       setPage("premiere-preview");
     } else {
@@ -150,58 +181,79 @@ function AppContent() {
       )}
 
       <div className="flex-1 overflow-y-auto pb-16">
-        <AnimatePresence mode="wait">
-          {page === "home" && (
-            <div key="home">
-              <HomePage searchTerm={searchTerm} />
-            </div>
-          )}
-          {page === "player" && (
-            <div key="player">
-              <VideoPlayerPage />
-            </div>
-          )}
-          {page === "upload" && (
-            <div key="upload">
-              <UploadPage />
-            </div>
-          )}
-          {page === "history" && (
-            <div key="history">
-              <HistoryPage />
-            </div>
-          )}
-          {page === "menu" && (
-            <div key="menu">
-              <MenuPage />
-            </div>
-          )}
-          {page === "playlist" && (
-            <div key="playlist">
-              <PlaylistPage />
-            </div>
-          )}
-          {page === "settings" && (
-            <div key="settings">
-              <SettingsPage />
-            </div>
-          )}
-          {page === "channel" && (
-            <div key="channel">
-              <ChannelPage />
-            </div>
-          )}
-          {page === "calendar" && (
-            <div key="calendar">
-              <CalendarPage />
-            </div>
-          )}
-          {page === "premiere-preview" && selectedVideo && (
-            <div key="premiere-preview">
-              <PremierePreviewPage video={selectedVideo} />
-            </div>
-          )}
-        </AnimatePresence>
+        <ErrorBoundary>
+          <Suspense fallback={<PageLoadingFallback />}>
+            <AnimatePresence mode="wait">
+              {page === "home" && (
+                <div key="home">
+                  <HomePage searchTerm={searchTerm} />
+                </div>
+              )}
+              {page === "player" && (
+                <div key="player">
+                  <VideoPlayerPage />
+                </div>
+              )}
+              {page === "upload" && (
+                <div key="upload">
+                  <UploadPage />
+                </div>
+              )}
+              {page === "history" && (
+                <div key="history">
+                  <HistoryPage />
+                </div>
+              )}
+              {page === "menu" && (
+                <div key="menu">
+                  <MenuPage />
+                </div>
+              )}
+              {page === "playlist" && (
+                <div key="playlist">
+                  <PlaylistPage />
+                </div>
+              )}
+              {page === "settings" && (
+                <div key="settings">
+                  <SettingsPage />
+                </div>
+              )}
+              {page === "channel" && (
+                <div key="channel">
+                  <ChannelPage />
+                </div>
+              )}
+              {page === "calendar" && (
+                <div key="calendar">
+                  <CalendarPage />
+                </div>
+              )}
+              {page === "premiere-preview" && selectedVideo && (
+                <div key="premiere-preview">
+                  <PremierePreviewPage video={selectedVideo} />
+                </div>
+              )}
+              {/* Fallback: unknown page → home */}
+              {![
+                "home",
+                "player",
+                "upload",
+                "history",
+                "menu",
+                "playlist",
+                "settings",
+                "channel",
+                "calendar",
+                "premiere-preview",
+              ].includes(page) && (
+                <div key="home-fallback">
+                  <HomePage searchTerm="" />
+                </div>
+              )}
+            </AnimatePresence>
+          </Suspense>
+        </ErrorBoundary>
       </div>
 
       <GlobalUploadManager />
@@ -241,12 +293,14 @@ export default function App() {
         <AppProvider>
           <I18nProvider>
             <UploadQueueProvider>
-              {showIntro ? (
-                <IntroScreen onComplete={handleIntroComplete} />
-              ) : (
-                <AppContent />
-              )}
-              <Toaster />
+              <ErrorBoundary>
+                {showIntro ? (
+                  <IntroScreen onComplete={handleIntroComplete} />
+                ) : (
+                  <AppContent />
+                )}
+              </ErrorBoundary>
+              <Toaster richColors closeButton />
             </UploadQueueProvider>
           </I18nProvider>
         </AppProvider>

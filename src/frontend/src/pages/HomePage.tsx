@@ -4,8 +4,10 @@ import { Bell, ListVideo, Play, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Video } from "../backend";
 import { AddToPlaylistModal } from "../components/AddToPlaylistModal";
+import { UploadingVideoCard } from "../components/UploadingVideoCard";
 import { VideoCard } from "../components/VideoCard";
 import { useApp } from "../context/AppContext";
+import { useUploadQueue } from "../context/UploadQueueContext";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { useListVideos, useSubscriptions } from "../hooks/useQueries";
 import { useT } from "../i18n";
@@ -344,6 +346,17 @@ export function HomePage({ searchTerm }: HomePageProps) {
   const tickRef = useRef(recTick);
   tickRef.current = recTick;
   const t = useT();
+  const { jobs, dismissJob } = useUploadQueue();
+
+  // Auto-dismiss completed jobs after 4 seconds (video should appear in feed by then)
+  useEffect(() => {
+    const completedJobs = jobs.filter((j) => j.status === "completed");
+    if (completedJobs.length === 0) return;
+    const timers = completedJobs.map((j) =>
+      setTimeout(() => dismissJob(j.id), 4000),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [jobs, dismissJob]);
 
   const TABS: { id: Tab; label: string }[] = [
     { id: "forYou", label: t("home.forYou") },
@@ -474,6 +487,15 @@ export function HomePage({ searchTerm }: HomePageProps) {
           ))}
         </div>
       </div>
+
+      {/* ── Active Upload Cards ─────────────────────────────────────────── */}
+      {jobs.length > 0 && (
+        <div className="pt-3 pb-0">
+          {jobs.map((job) => (
+            <UploadingVideoCard key={job.id} job={job} />
+          ))}
+        </div>
+      )}
 
       <div className="pt-4">
         {isLoading ? (
